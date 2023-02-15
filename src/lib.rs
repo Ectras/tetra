@@ -3,8 +3,11 @@ use num_complex::Complex64;
 /// A tensor of arbitrary dimensions containing complex64 values.
 #[derive(Clone, Debug)]
 pub struct Tensor {
+    /// The shape of the tensor.
     shape: Vec<i32>,
-    data: Vec<Complex64>,
+
+    /// The tensor data in column-major order.
+    data: Vec<Complex64>, 
 }
 
 impl Tensor {
@@ -20,11 +23,12 @@ impl Tensor {
     }
 
     /// Computes the flat index given the accessed coordinates.
+    /// Assumes column-major ordering.
     fn compute_index(&self, dimensions: &[i32]) -> usize {
         assert_eq!(dimensions.len(), self.shape.len());
 
-        let mut idx = dimensions[0];
-        for i in 1..dimensions.len() {
+        let mut idx = dimensions[dimensions.len() - 1];
+        for i in (0..dimensions.len() - 1).rev() {
             idx = dimensions[i] + self.shape[i] * idx;
         }
         idx as usize
@@ -50,8 +54,11 @@ mod tests {
     #[test]
     fn test_index_computation() {
         let t = Tensor::new(&[2, 4, 5, 1]);
-        assert_eq!(t.compute_index(&[0, 1, 1, 0]), 6);
-        assert_eq!(t.compute_index(&[0, 1, 2, 0]), 7);
+        assert_eq!(t.compute_index(&[0, 0, 0, 0]), 0);
+        assert_eq!(t.compute_index(&[1, 0, 0, 0]), 1);
+        assert_eq!(t.compute_index(&[0, 1, 0, 0]), 2);
+        assert_eq!(t.compute_index(&[0, 1, 1, 0]), 10);
+        assert_eq!(t.compute_index(&[0, 1, 2, 0]), 18);
         assert_eq!(t.compute_index(&[1, 3, 4, 0]), 39);
     }
 }
