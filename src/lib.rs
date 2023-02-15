@@ -16,7 +16,14 @@ impl Tensor {
     /// The tensor is initialized with zeros.
     #[must_use]
     pub fn new(dimensions: &[i32]) -> Self {
-        let total_items: usize = dimensions.iter().product::<i32>() as usize;
+        // Validity checks
+        assert!(!dimensions.is_empty());
+        for dim in dimensions {
+            assert!(0 <= *dim);
+        }
+
+        // Construct tensor
+        let total_items = dimensions.iter().product::<i32>() as usize;
         Self {
             shape: dimensions.to_vec(),
             data: vec![Complex64::new(0.0, 0.0); total_items],
@@ -25,9 +32,17 @@ impl Tensor {
 
     /// Computes the flat index given the accessed coordinates.
     /// Assumes column-major ordering.
+    ///
+    /// # Panics
+    /// Panics if the coordinates are invalid.
     fn compute_index(&self, dimensions: &[i32]) -> usize {
+        // Validate coordinates
         assert_eq!(dimensions.len(), self.shape.len());
+        for i in 0..dimensions.len() {
+            assert!(0 <= dimensions[i] && dimensions[i] < self.shape[i]);
+        }
 
+        // Compute index
         let mut idx = dimensions[dimensions.len() - 1];
         for i in (0..dimensions.len() - 1).rev() {
             idx = dimensions[i] + self.shape[i] * idx;
@@ -42,6 +57,7 @@ impl Tensor {
     }
 
     /// Gets the value at the given position.
+    #[must_use]
     pub fn get(&self, dimensions: &[i32]) -> Complex64 {
         let idx = self.compute_index(dimensions);
         self.data[idx]
