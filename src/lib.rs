@@ -63,6 +63,31 @@ impl Tensor {
         self.data[idx]
     }
 
+    /// Gets the number of legs.
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// assert_eq!(Tensor::new(&[1, 1]).leg_count(), 2);
+    /// assert_eq!(Tensor::new(&[1, 1, 2, 3]).leg_count(), 4);
+    /// ```
+    pub fn leg_count(&self) -> i32 {
+        self.shape.len() as i32
+    }
+
+    /// Gets the dimension of the specified leg.
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// assert_eq!(Tensor::new(&[1, 3, 2, 4]).leg_dimension(0), 1);
+    /// assert_eq!(Tensor::new(&[1, 3, 2, 4]).leg_dimension(1), 3);
+    /// assert_eq!(Tensor::new(&[1, 3, 2, 4]).leg_dimension(2), 2);
+    /// ```
+    pub fn leg_dimension(&self, leg: i32) -> i32 {
+        self.shape[leg as usize] as i32
+    }
+
     /// Returns a tensor with the axes transposed according to the permutation.
     #[must_use]
     pub fn transpose(&self, permutation: &[i32]) -> Self {
