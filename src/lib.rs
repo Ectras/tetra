@@ -114,4 +114,20 @@ mod tests {
         assert_eq!(t.compute_index(&[0, 1, 2, 0]), 18);
         assert_eq!(t.compute_index(&[1, 3, 4, 0]), 39);
     }
+
+    #[test]
+    fn test_transpose() {
+        let mut a = Tensor::new(&[2, 3]);
+        a.insert(&[0, 0], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2], Complex64::new(-5.0, 0.0));
+
+        let b = a.transpose(&[1, 0]);
+        assert_eq!(b.leg_count(), 2);
+        assert_eq!(b.leg_dimension(0), 3);
+        assert_eq!(b.leg_dimension(1), 2);
+        assert_eq!(b.get(&[0, 0]), Complex64::new(1.0, 2.0));
+        assert_eq!(b.get(&[1, 0]), Complex64::new(0.0, -1.0));
+        assert_eq!(b.get(&[2, 1]), Complex64::new(-5.0, 0.0));
+    }
 }
