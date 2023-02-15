@@ -1,3 +1,4 @@
+use hptt_sys::{permute, transpose_simple};
 use num_complex::Complex64;
 
 /// A tensor of arbitrary dimensions containing complex64 values.
@@ -44,6 +45,17 @@ impl Tensor {
     pub fn get(&self, dimensions: &[i32]) -> Complex64 {
         let idx = self.compute_index(dimensions);
         self.data[idx]
+    }
+
+    /// Returns a tensor with the axes transposed according to the permutation.
+    #[must_use]
+    pub fn transpose(&self, permutation: &[i32]) -> Self {
+        let b_data = transpose_simple(permutation, &self.data, &self.shape);
+        let b_shape = permute(permutation, &self.shape);
+        Self {
+            shape: b_shape,
+            data: b_data,
+        }
     }
 }
 
