@@ -225,9 +225,8 @@ mod tests {
 
         let (q, r) = a.qr();
         let out = contract(&[0, 2], &[0, 1], &q, &[1, 2], &r);
-
         for dim in t_ranges {
-            assert!((sol.get(&dim) - out.get(&dim)).norm() < 1e-10);
+            assert!((sol.get(&dim) - out.get(&dim)).norm() < std::f64::EPSILON * 1e1);
         }
     }
 
@@ -253,7 +252,7 @@ mod tests {
         let us = contract(&[0, 2], &[0, 1], &u, &[1, 2], &s);
         let out = contract(&[0, 2], &[0, 1], &us, &[1, 2], &vt);
         for dim in t_ranges {
-            assert!((sol.get(&dim) - out.get(&dim)).norm() < 1e-14);
+            assert!((sol.get(&dim) - out.get(&dim)).norm() < std::f64::EPSILON * 1e1);
         }
     }
 }
