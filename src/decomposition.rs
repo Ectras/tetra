@@ -105,6 +105,8 @@ impl Decomposition for Tensor {
         }
         (q_tensor, r_tensor)
     }
+
+    /// Implements SVD decomposition. Returns (U,S,Vt) where U and Vt are unitary matrices and S is a diagonal matrix of singular values
     fn svd(&mut self) -> (Tensor, Tensor, Tensor) {
         assert!(self.ndim() == 2, "Only able to decompose matrices");
         // Get shape of input Tensor
@@ -115,17 +117,21 @@ impl Decomposition for Tensor {
 
         // Leading dimension of `self`
         let lda = max(1, m);
+        // Leading dimension of `u_tensor`
         let ldu = m;
+        // Leading dimension of `vt_tensor`
         let ldvt = min_dim as i32;
-
+        // Using double vector as stand in until other Tensor types defined
         let mut s = vec![0.0; min_dim];
 
+        // TODO: Add different Tensor types that allow for diagonal tensors
         let mut u_tensor = Tensor::new(&[m, ldvt]);
         let mut vt_tensor = Tensor::new(&[ldvt, n]);
         let mut s_tensor = Tensor::new(&[ldvt, ldvt]);
 
         // Set to -1 to query optimal scratch space
         let mut lwork = -1;
+
         // Complex work scratch space
         let mut work = vec![Complex64::new(0.0, 0.0); 1];
 
@@ -141,7 +147,7 @@ impl Decomposition for Tensor {
         // Integer scratch space
         let mut iwork = vec![0; 8 * min_dim];
 
-        // Return 0 if successful
+        // Queries for optimal scratch space
         let mut info = 0;
         unsafe {
             zgesdd(
@@ -188,6 +194,7 @@ impl Decomposition for Tensor {
                 &mut info,
             )
         }
+        // Fill in s_tensor
         for i in 0..ldvt {
             s_tensor.insert(&[i, i], Complex64::new(s[i as usize], 0.0));
         }
