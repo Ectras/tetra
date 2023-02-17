@@ -8,6 +8,8 @@ use permutation::Permutation;
 
 pub mod permutation;
 
+pub mod decomposition;
+
 /// A tensor of arbitrary dimensions containing complex64 values.
 #[derive(Clone, Debug)]
 pub struct Tensor {
