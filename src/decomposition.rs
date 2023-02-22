@@ -210,11 +210,11 @@ mod tests {
     use itertools::Itertools;
     use num_complex::Complex64;
     use rand::distributions::{Distribution, Uniform};
-    use rand::Rng;
-
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
     #[test]
     fn test_qr() {
-        let mut rng = rand::thread_rng();
+        let mut rng = StdRng::seed_from_u64(23);
         let die = Uniform::from(4..10);
 
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_svd() {
-        let mut rng = rand::thread_rng();
+        let mut rng = StdRng::seed_from_u64(23);
         let die = Uniform::from(4..10);
 
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
