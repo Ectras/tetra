@@ -50,7 +50,7 @@ rust:
   stage: build
   script:
     # Install packages for building dependencies
-    - apt-get install -qq clang cmake gfortran libssl-dev pkg-config
+    - apt-get install -qq clang cmake gfortran libopenblas-dev libssl-dev pkg-config
 
     # Report on the used Rust version
     - rustc --version

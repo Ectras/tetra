@@ -1,3 +1,4 @@
+extern crate openblas_src;
 use hptt_sys::{permute, transpose_simple};
 use num_complex::Complex64;
 
