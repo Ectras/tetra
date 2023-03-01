@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 extern crate openblas_src;
 use cblas::{zgemm, Layout, Transpose};
-use hptt_sys::{permute, transpose_simple};
+use hptt_sys::{inv_permute, permute, transpose_simple};
 use num_complex::Complex64;
 
 /// A tensor of arbitrary dimensions containing complex64 values.
@@ -52,7 +52,7 @@ impl Tensor {
     /// Panics if the coordinates are invalid.
     fn compute_index(&self, coordinates: &[i32]) -> usize {
         // Get the unpermuted coordinates
-        let dims = permute(&self.permutation, coordinates);
+        let dims = inv_permute(&self.permutation, coordinates);
 
         // Validate coordinates
         assert_eq!(dims.len(), self.shape.len());
@@ -272,16 +272,16 @@ mod tests {
 
     #[test]
     fn test_transpose() {
-        let mut a = Tensor::new(&[2, 3]);
-        a.insert(&[0, 0], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2], Complex64::new(-5.0, 0.0));
+        let mut a = Tensor::new(&[2, 3, 4]);
+        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
 
-        a.transpose(&[1, 0]);
-        assert_eq!(a.shape(), vec![3, 2]);
-        assert_eq!(a.get(&[0, 0]), Complex64::new(1.0, 2.0));
-        assert_eq!(a.get(&[1, 0]), Complex64::new(0.0, -1.0));
-        assert_eq!(a.get(&[2, 1]), Complex64::new(-5.0, 0.0));
+        a.transpose(&[1, 2, 0]);
+        assert_eq!(a.shape(), vec![3, 4, 2]);
+        assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
+        assert_eq!(a.get(&[1, 3, 0]), Complex64::new(0.0, -1.0));
+        assert_eq!(a.get(&[2, 1, 1]), Complex64::new(-5.0, 0.0));
     }
 
     #[test]
