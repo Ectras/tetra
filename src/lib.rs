@@ -41,8 +41,8 @@ impl Tensor {
     /// Actually transposes the underlying data according to the current axis permutation.
     fn materialize_transpose(&mut self) {
         self.data = transpose_simple(&self.permutation, &self.data, &self.shape);
-        self.permutation = (0..self.shape.len() as i32).collect();
         self.shape = permute(&self.permutation, &self.shape);
+        self.permutation = (0..self.shape.len() as i32).collect();
     }
 
     /// Computes the flat index given the accessed coordinates.
