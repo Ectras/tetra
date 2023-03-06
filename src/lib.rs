@@ -321,6 +321,24 @@ mod tests {
     }
 
     #[test]
+    fn test_materialize_transpose() {
+        let mut a = Tensor::new(&[2, 3, 4, 5]);
+        a.insert(&[0, 0, 0, 1], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
+
+        a.transpose(&[1, 2, 0, 3]);
+        assert_eq!(a.permutation, [1, 2, 0, 3]);
+        assert_eq!(a.shape(), vec![3, 4, 2, 5]);
+        assert_eq!(a.get(&[0, 0, 0, 1]), Complex64::new(1.0, 2.0));
+        assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
+        assert_eq!(a.get(&[2, 1, 1, 4]), Complex64::new(-5.0, 0.0));
+        a.materialize_transpose();
+        assert_eq!(a.permutation, [0, 1, 2, 3]);
+        assert_eq!(a.shape(), vec![3, 4, 2, 5]);
+    }
+
+    #[test]
     fn toy_contraction() {
         // Create tensors
         let mut b = Tensor::new(&[2, 3, 4]);
