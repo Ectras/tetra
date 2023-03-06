@@ -299,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transpose() {
+    fn test_single_transpose() {
         let mut a = Tensor::new(&[2, 3, 4]);
         a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
         a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
@@ -307,9 +307,17 @@ mod tests {
 
         a.transpose(&[1, 2, 0]);
         assert_eq!(a.shape(), vec![3, 4, 2]);
+        assert_eq!(a.permutation, vec![1, 2, 0]);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 3, 0]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1]), Complex64::new(-5.0, 0.0));
+
+        a.transpose(&[1, 2, 0]);
+        assert_eq!(a.shape(), vec![4, 2, 3]);
+        assert_eq!(a.permutation, vec![2, 0, 1]);
+        assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
+        assert_eq!(a.get(&[3, 0, 1]), Complex64::new(0.0, -1.0));
+        assert_eq!(a.get(&[1, 1, 2]), Complex64::new(-5.0, 0.0));
     }
 
     #[test]
