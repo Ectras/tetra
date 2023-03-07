@@ -177,9 +177,11 @@ pub fn contract(
     let mut a_contracted_size = 1;
     let mut a_remaining_size = 1;
     let mut a_perm = vec![0i32; a_indices.len()];
+    let mut contract_order = vec![0; contracted.len()];
     for (i, idx) in a_indices.iter().enumerate() {
         if contracted.contains(idx) {
             a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i as i32;
+            contract_order[a_contracted] = *idx;
             a_contracted_size *= a.size(Some(i));
             a_contracted += 1;
         } else {
@@ -195,16 +197,14 @@ pub fn contract(
     a_transposed.transpose(&a_perm);
 
     // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for B
-    let mut b_contracted = 0;
     let mut b_remaining = 0;
     let mut b_contracted_size = 1;
     let mut b_remaining_size = 1;
     let mut b_perm = vec![0i32; b_indices.len()];
     for (i, idx) in b_indices.iter().enumerate() {
         if contracted.contains(idx) {
-            b_perm[b_contracted] = i as i32;
+            b_perm[contract_order.iter().position(|e| *e == *idx ).unwrap()] = i as i32;
             b_contracted_size *= b.size(Some(i));
-            b_contracted += 1;
         } else {
             b_perm[contracted.len() + b_remaining] = i as i32;
             b_remaining += 1;
