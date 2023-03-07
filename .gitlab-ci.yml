@@ -6,7 +6,7 @@ before_script:
   ## (change apt-get to yum if you use an RPM-based image)
   ##
   - apt-get update -qq
-  - 'command -v ssh-agent >/dev/null || ( apt-get install openssh-client -qq )'
+  - 'command -v ssh-agent >/dev/null || ( apt-get install -qq openssh-client )'
 
   ##
   ## Run ssh-agent (inside the build environment)
@@ -50,7 +50,7 @@ rust:
   stage: build
   script:
     # Install packages for building dependencies
-    - apt-get install -qq clang cmake gfortran libopenblas-dev libssl-dev pkg-config
+    - apt-get install -qq build-essential clang cmake gfortran libopenblas-dev libssl-dev pkg-config
 
     # Report on the used Rust version
     - rustc --version

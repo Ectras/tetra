@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+
 extern crate openblas_src;
+use cblas::{zgemm, Layout, Transpose};
 use hptt_sys::{permute, transpose_simple};
 use num_complex::Complex64;
 
@@ -115,6 +118,143 @@ impl Tensor {
     }
 }
 
+/// Contracts two tensors a and b, writing the result to the out tensor.
+/// The indices specify which legs are to be contracted (like einsum notation). So if
+/// two tensors share an index, the corresponding dimension is contracted.
+#[must_use]
+pub fn contract(
+    out_indices: &[i32],
+    a_indices: &[i32],
+    a: &Tensor,
+    b_indices: &[i32],
+    b: &Tensor,
+) -> Tensor {
+    assert_eq!(a_indices.len(), a.shape.len());
+    assert_eq!(b_indices.len(), b.shape.len());
+
+    // Find contracted indices
+    let a_legs = a_indices.iter().copied().collect::<HashSet<_>>();
+    let b_legs = b_indices.iter().copied().collect::<HashSet<_>>();
+    let contracted = a_legs
+        .intersection(&b_legs)
+        .copied()
+        .collect::<HashSet<_>>();
+
+    let mut remaining =
+        Vec::with_capacity(a_indices.len() + b_indices.len() - 2 * contracted.len());
+
+    // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for A
+    let mut a_contracted = 0;
+    let mut a_remaining = 0;
+    let mut a_contracted_size = 1;
+    let mut a_remaining_size = 1;
+    let mut a_perm = vec![0i32; a_indices.len()];
+    for (i, idx) in a_indices.iter().enumerate() {
+        if contracted.contains(idx) {
+            a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i as i32;
+            a_contracted_size *= a.shape[i];
+            a_contracted += 1;
+        } else {
+            a_perm[a_remaining] = i as i32;
+            a_remaining += 1;
+            a_remaining_size *= a.shape[i];
+            remaining.push(*idx);
+        }
+    }
+
+    // Get transposed A
+    let mut a_transposed = a.clone();
+    a_transposed.transpose(&a_perm);
+
+    // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for B
+    let mut b_contracted = 0;
+    let mut b_remaining = 0;
+    let mut b_contracted_size = 1;
+    let mut b_remaining_size = 1;
+    let mut b_perm = vec![0i32; b_indices.len()];
+    for (i, idx) in b_indices.iter().enumerate() {
+        if contracted.contains(idx) {
+            b_perm[b_contracted] = i as i32;
+            b_contracted_size *= b.shape[i];
+            b_contracted += 1;
+        } else {
+            b_perm[contracted.len() + b_remaining] = i as i32;
+            b_remaining += 1;
+            b_remaining_size *= b.shape[i];
+            remaining.push(*idx);
+        }
+    }
+
+    // Get transposed B
+    let mut b_transposed = b.clone();
+    b_transposed.transpose(&b_perm);
+
+    // Make sure the connecting matrix dimensions match
+    assert_eq!(a_contracted_size, b_contracted_size);
+
+    // Compute the shape of C based on the remaining indices
+    let mut c_shape = Vec::with_capacity(remaining.len());
+    for r in remaining.iter() {
+        let mut found = false;
+        for (i, s) in a_indices.iter().enumerate() {
+            if *r == *s {
+                c_shape.push(a.shape[i]);
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            for (i, s) in b_indices.iter().enumerate() {
+                if *r == *s {
+                    c_shape.push(b.shape[i]);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Create output tensor
+    let mut out = Tensor::new(&c_shape);
+
+    // Compute ZGEMM
+    a_transposed.materialize_transpose();
+    b_transposed.materialize_transpose();
+    unsafe {
+        zgemm(
+            Layout::ColumnMajor,
+            Transpose::None,
+            Transpose::None,
+            a_remaining_size,
+            b_remaining_size,
+            b_contracted_size,
+            Complex64::new(1.0, 0.0),
+            &a_transposed.data,
+            a_remaining_size,
+            &b_transposed.data,
+            b_contracted_size,
+            Complex64::new(0.0, 0.0),
+            &mut out.data,
+            a_remaining_size,
+        );
+    }
+
+    // Find permutation for output tensor
+    let mut c_perm = vec![0; remaining.len()];
+    for i in 0..remaining.len() {
+        for j in 0..remaining.len() {
+            if remaining[i] == out_indices[j] {
+                c_perm[i] = j as i32;
+                break;
+            }
+        }
+    }
+
+    // Return transposed output tensor
+    out.transpose(&c_perm);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +282,55 @@ mod tests {
         assert_eq!(a.get(&[0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 0]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1]), Complex64::new(-5.0, 0.0));
+    }
+
+    #[test]
+    fn toy_contraction() {
+        // Create tensors
+        let mut b = Tensor::new(&[2, 3, 4]);
+        let mut c = Tensor::new(&[4]);
+
+        // Insert data into B and C
+        b.insert(&[0, 0, 0], Complex64::new(1.0, 0.0));
+        b.insert(&[1, 2, 0], Complex64::new(2.0, 0.0));
+        b.insert(&[1, 2, 1], Complex64::new(3.0, 0.0));
+        c.insert(&[0], Complex64::new(4.0, 0.0));
+        c.insert(&[1], Complex64::new(5.0, 0.0));
+
+        // Contract the tensors
+        let a = contract(&[0, 1], &[0, 1, 2], &b, &[2], &c);
+
+        // Check result in A
+        assert_eq!(a.get(&[0, 0]), Complex64::new(4.0, 0.0));
+        assert_eq!(a.get(&[0, 1]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[0, 2]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[1, 0]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[1, 1]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[1, 2]), Complex64::new(23.0, 0.0));
+    }
+
+    #[test]
+    fn toy_contraction_transposed() {
+        // Create tensors
+        let mut b = Tensor::new(&[2, 3, 4]);
+        let mut c = Tensor::new(&[4]);
+
+        // Insert data into B and C
+        b.insert(&[0, 0, 0], Complex64::new(1.0, 0.0));
+        b.insert(&[1, 2, 0], Complex64::new(2.0, 0.0));
+        b.insert(&[1, 2, 1], Complex64::new(3.0, 0.0));
+        c.insert(&[0], Complex64::new(4.0, 0.0));
+        c.insert(&[1], Complex64::new(5.0, 0.0));
+
+        // Contract the tensors
+        let a = contract(&[1, 0], &[0, 1, 2], &b, &[2], &c);
+
+        // Check result in A
+        assert_eq!(a.get(&[0, 0]), Complex64::new(4.0, 0.0));
+        assert_eq!(a.get(&[1, 0]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[2, 0]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[0, 1]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[1, 1]), Complex64::new(0.0, 0.0));
+        assert_eq!(a.get(&[2, 1]), Complex64::new(23.0, 0.0));
     }
 }
