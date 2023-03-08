@@ -271,7 +271,7 @@ pub fn contract(
     let mut c_perm = vec![0; remaining.len()];
     for i in 0..remaining.len() {
         for j in 0..remaining.len() {
-            if remaining[i] == out_indices[j] {
+            if out_indices[i] == remaining[j] {
                 c_perm[i] = j as i32;
                 break;
             }
