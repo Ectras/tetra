@@ -86,6 +86,15 @@ impl Tensor {
         permute(&self.permutation, &self.shape)
     }
 
+    /// Returns the size of a single axis or of the whole tensor.
+    pub fn size(&self, axis: Option<usize>) -> i32 {
+        if let Some(axis) = axis {
+            self.shape[self.permutation[axis] as usize]
+        } else {
+            self.data.len() as i32
+        }
+    }
+
     /// Gets the number of legs.
     ///
     /// # Examples
