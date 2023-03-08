@@ -134,32 +134,6 @@ impl Tensor {
         }
     }
 
-    /// Gets the number of legs.
-    ///
-    /// # Examples
-    /// ```
-    /// # use tetra::Tensor;
-    /// assert_eq!(Tensor::new(&[1, 1]).leg_count(), 2);
-    /// assert_eq!(Tensor::new(&[1, 1, 2, 3]).leg_count(), 4);
-    /// ```
-    pub fn leg_count(&self) -> i32 {
-        self.shape.len() as i32
-    }
-
-    /// Gets the dimension of the specified leg.
-    ///
-    /// # Examples
-    /// ```
-    /// # use tetra::Tensor;
-    /// let t = Tensor::new(&[1, 3, 2, 4]);
-    /// assert_eq!(t.leg_dimension(0), 1);
-    /// assert_eq!(t.leg_dimension(1), 3);
-    /// assert_eq!(t.leg_dimension(2), 2);
-    /// ```
-    pub fn leg_dimension(&self, leg: i32) -> i32 {
-        self.shape[self.permutation[leg as usize] as usize] as i32
-    }
-
     /// Transposes the tensor axes according to the permutation.
     /// This method does not modify the data but only the view, hence it's zero cost.
     pub fn transpose(&mut self, permutation: &[i32]) {
