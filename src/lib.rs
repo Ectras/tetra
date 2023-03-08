@@ -38,6 +38,25 @@ impl Tensor {
         }
     }
 
+    // Creates a new tensor with the given dimensions and the corresponding data.
+    #[must_use]
+    pub fn new_from_flat(dimensions: &[i32], data: Vec<Complex64>) -> Self {
+        // Validity checks
+        assert!(!dimensions.is_empty());
+        for dim in dimensions {
+            assert!(0 <= *dim);
+        }
+        let total_items = dimensions.iter().product::<i32>() as usize;
+        assert_eq!(total_items, data.len());
+
+        // Construct tensor
+        Self {
+            shape: dimensions.to_vec(),
+            permutation: (0..dimensions.len() as i32).collect(),
+            data
+        }
+    }
+
     /// Actually transposes the underlying data according to the current axis permutation.
     fn materialize_transpose(&mut self) {
         self.data = transpose_simple(&self.permutation, &self.data, &self.shape);
