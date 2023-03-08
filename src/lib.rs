@@ -53,11 +53,13 @@ impl Tensor {
         Self {
             shape: dimensions.to_vec(),
             permutation: (0..dimensions.len() as i32).collect(),
-            data
+            data,
         }
     }
 
     /// Actually transposes the underlying data according to the current axis permutation.
+    /// This should not affect the tensor as observable from the outside (e.g. shape(),
+    /// size(), get() and similar should show no difference).
     fn materialize_transpose(&mut self) {
         self.data = transpose_simple(&self.permutation, &self.data, &self.shape);
         self.shape = permute(&self.permutation, &self.shape);
@@ -101,7 +103,7 @@ impl Tensor {
     }
 
     /// Returns a copy of the current shape.
-    /// 
+    ///
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
@@ -115,7 +117,7 @@ impl Tensor {
     }
 
     /// Returns the size of a single axis or of the whole tensor.
-    /// 
+    ///
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
@@ -222,7 +224,7 @@ pub fn contract(
     let mut b_perm = vec![0i32; b_indices.len()];
     for (i, idx) in b_indices.iter().enumerate() {
         if contracted.contains(idx) {
-            b_perm[contract_order.iter().position(|e| *e == *idx ).unwrap()] = i as i32;
+            b_perm[contract_order.iter().position(|e| *e == *idx).unwrap()] = i as i32;
             b_contracted_size *= b.size(Some(i));
         } else {
             b_perm[contracted.len() + b_remaining] = i as i32;
