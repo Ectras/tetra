@@ -82,11 +82,29 @@ impl Tensor {
     }
 
     /// Returns a copy of the current shape.
+    /// 
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// let mut t = Tensor::new(&[3, 2, 5, 4, 1]);
+    /// assert_eq!(t.shape(), vec![3, 2, 5, 4, 1]);
+    /// t.transpose(&[3, 1, 4, 0, 2]);
+    /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
+    /// ```
     pub fn shape(&self) -> Vec<i32> {
         permute(&self.permutation, &self.shape)
     }
 
     /// Returns the size of a single axis or of the whole tensor.
+    /// 
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// let t = Tensor::new(&[1, 3, 5]);
+    /// assert_eq!(t.size(None), 15);
+    /// assert_eq!(t.size(Some(1)), 3);
+    /// assert_eq!(t.size(Some(2)), 5);
+    /// ```
     pub fn size(&self, axis: Option<usize>) -> i32 {
         if let Some(axis) = axis {
             self.shape[self.permutation[axis] as usize]
@@ -112,9 +130,10 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
-    /// assert_eq!(Tensor::new(&[1, 3, 2, 4]).leg_dimension(0), 1);
-    /// assert_eq!(Tensor::new(&[1, 3, 2, 4]).leg_dimension(1), 3);
-    /// assert_eq!(Tensor::new(&[1, 3, 2, 4]).leg_dimension(2), 2);
+    /// let t = Tensor::new(&[1, 3, 2, 4]);
+    /// assert_eq!(t.leg_dimension(0), 1);
+    /// assert_eq!(t.leg_dimension(1), 3);
+    /// assert_eq!(t.leg_dimension(2), 2);
     /// ```
     pub fn leg_dimension(&self, leg: i32) -> i32 {
         self.shape[self.permutation[leg as usize] as usize] as i32
