@@ -180,12 +180,12 @@ pub fn contract(
     for (i, idx) in a_indices.iter().enumerate() {
         if contracted.contains(idx) {
             a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i as i32;
-            a_contracted_size *= a.shape[i];
+            a_contracted_size *= a.size(Some(i));
             a_contracted += 1;
         } else {
             a_perm[a_remaining] = i as i32;
             a_remaining += 1;
-            a_remaining_size *= a.shape[i];
+            a_remaining_size *= a.size(Some(i));
             remaining.push(*idx);
         }
     }
@@ -203,12 +203,12 @@ pub fn contract(
     for (i, idx) in b_indices.iter().enumerate() {
         if contracted.contains(idx) {
             b_perm[b_contracted] = i as i32;
-            b_contracted_size *= b.shape[i];
+            b_contracted_size *= b.size(Some(i));
             b_contracted += 1;
         } else {
             b_perm[contracted.len() + b_remaining] = i as i32;
             b_remaining += 1;
-            b_remaining_size *= b.shape[i];
+            b_remaining_size *= b.size(Some(i));
             remaining.push(*idx);
         }
     }
@@ -226,7 +226,7 @@ pub fn contract(
         let mut found = false;
         for (i, s) in a_indices.iter().enumerate() {
             if *r == *s {
-                c_shape.push(a.shape[i]);
+                c_shape.push(a.size(Some(i)));
                 found = true;
                 break;
             }
@@ -235,7 +235,7 @@ pub fn contract(
         if !found {
             for (i, s) in b_indices.iter().enumerate() {
                 if *r == *s {
-                    c_shape.push(b.shape[i]);
+                    c_shape.push(b.size(Some(i)));
                     break;
                 }
             }
