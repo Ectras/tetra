@@ -10,3 +10,6 @@ num-complex = "0.4"
 openblas-src = { version = "0.10", features = ["system"] }
 cblas = "0.4"
 hptt-sys = { git = "ssh://gitlab.lrz.de/quantum-research/hptt-sys.git" }
+
+[dev-dependencies]
+float-cmp = "0.9"
