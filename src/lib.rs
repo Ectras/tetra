@@ -156,10 +156,10 @@ pub fn contract(
     assert_eq!(b_indices.len(), b.shape.len());
 
     // Find contracted indices
-    let a_legs = a_indices.iter().copied().collect::<HashSet<_>>();
     let b_legs = b_indices.iter().copied().collect::<HashSet<_>>();
-    let contracted = a_legs
-        .intersection(&b_legs)
+    let contracted = a_indices
+        .iter()
+        .filter(|idx| b_legs.contains(idx))
         .copied()
         .collect::<HashSet<_>>();
 
