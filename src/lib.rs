@@ -154,6 +154,18 @@ impl Tensor {
         }
     }
 
+    /// Returns the number of dimensions / axes of the tensor.
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// assert_eq!(Tensor::new(&[1, 2]).ndim(), 2);
+    /// assert_eq!(Tensor::new(&[1, 3, 6, 5]).ndim(), 4);
+    /// ```
+    pub fn ndim(&self) -> i32 {
+        self.shape.len() as i32
+    }
+
     /// Transposes the tensor axes according to the permutation.
     /// This method does not modify the data but only the view, hence it's zero cost.
     /// The permutation is interpreted as an inverse permutation wich matches the
