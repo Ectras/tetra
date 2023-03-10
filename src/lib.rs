@@ -21,6 +21,9 @@ pub struct Tensor {
 impl Tensor {
     /// Creates a new tensor of the given dimensions.
     /// The tensor is initialized with zeros.
+    /// 
+    /// # Panics
+    /// - Panics if the dimensions are empty or non-positive
     #[must_use]
     pub fn new(dimensions: &[i32]) -> Self {
         // Validity checks
@@ -38,7 +41,11 @@ impl Tensor {
         }
     }
 
-    // Creates a new tensor with the given dimensions and the corresponding data.
+    /// Creates a new tensor with the given dimensions and the corresponding data.
+    ///
+    /// # Panics
+    /// - Panics if the dimensions are empty or non-positive
+    /// - Panics if the length of the data does not match with the dimensions given
     #[must_use]
     pub fn new_from_flat(dimensions: &[i32], data: Vec<Complex64>) -> Self {
         // Validity checks
@@ -112,6 +119,7 @@ impl Tensor {
     /// t.transpose(&[3, 1, 4, 0, 2]);
     /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
     /// ```
+    #[must_use]
     pub fn shape(&self) -> Vec<i32> {
         permute(&self.permutation, &self.shape)
     }
@@ -126,6 +134,7 @@ impl Tensor {
     /// assert_eq!(t.size(Some(1)), 3);
     /// assert_eq!(t.size(Some(2)), 5);
     /// ```
+    #[must_use]
     pub fn size(&self, axis: Option<usize>) -> i32 {
         if let Some(axis) = axis {
             self.shape[self.permutation[axis] as usize]
@@ -144,6 +153,9 @@ impl Tensor {
 /// Contracts two tensors a and b, writing the result to the out tensor.
 /// The indices specify which legs are to be contracted (like einsum notation). So if
 /// two tensors share an index, the corresponding dimension is contracted.
+/// 
+/// # Panics
+/// - Panics if contracted sizes don't match
 #[must_use]
 pub fn contract(
     out_indices: &[i32],
@@ -217,7 +229,7 @@ pub fn contract(
 
     // Compute the shape of C based on the remaining indices
     let mut c_shape = Vec::with_capacity(remaining.len());
-    for r in remaining.iter() {
+    for r in &remaining {
         let mut found = false;
         for (i, s) in a_indices.iter().enumerate() {
             if *r == *s {
