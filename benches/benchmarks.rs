@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use num_complex::Complex64;
 use rand::{
@@ -35,11 +37,13 @@ fn consecutive_contraction(
 
 pub fn contraction_benchmark(criterion: &mut Criterion) {
     // Create tensors
-    let b = random_tensor(&[2, 2, 3, 4]);
-    let c = random_tensor(&[6, 3, 5, 2]);
-    let d = random_tensor(&[6, 5, 2]);
+    let b = random_tensor(&[4, 4, 3, 10]);
+    let c = random_tensor(&[6, 3, 5, 4]);
+    let d = random_tensor(&[6, 5, 4]);
 
-    criterion.bench_function("contraction", |bench| {
+    let mut group = criterion.benchmark_group("contractions");
+    group.measurement_time(Duration::from_secs(10)).sample_size(200);
+    group.bench_function("contraction", |bench| {
         bench.iter(|| {
             consecutive_contraction(
                 &b,
@@ -53,6 +57,7 @@ pub fn contraction_benchmark(criterion: &mut Criterion) {
             )
         })
     });
+    group.finish();
 }
 
 criterion_group!(benches, contraction_benchmark);
