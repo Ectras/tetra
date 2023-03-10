@@ -14,6 +14,7 @@ hptt-sys = { git = "ssh://gitlab.lrz.de/quantum-research/hptt-sys.git" }
 [dev-dependencies]
 criterion = "0.3"
 float-cmp = "0.9"
+rand = "0.8.5"
 
 [[bench]]
 name = "benchmarks"
