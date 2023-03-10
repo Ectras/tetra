@@ -2,8 +2,11 @@ use std::collections::HashSet;
 
 extern crate openblas_src;
 use cblas::{zgemm, Layout, Transpose};
-use hptt_sys::{inv_permute, permute, transpose_simple};
+use hptt_sys::transpose_simple;
 use num_complex::Complex64;
+use permutation::{inv_permute, permutation_between, permute};
+
+pub mod permutation;
 
 /// A tensor of arbitrary dimensions containing complex64 values.
 #[derive(Clone, Debug)]
@@ -21,7 +24,7 @@ pub struct Tensor {
 impl Tensor {
     /// Creates a new tensor of the given dimensions.
     /// The tensor is initialized with zeros.
-    /// 
+    ///
     /// # Panics
     /// - Panics if the dimensions are empty or non-positive
     #[must_use]
@@ -153,7 +156,7 @@ impl Tensor {
 /// Contracts two tensors a and b, writing the result to the out tensor.
 /// The indices specify which legs are to be contracted (like einsum notation). So if
 /// two tensors share an index, the corresponding dimension is contracted.
-/// 
+///
 /// # Panics
 /// - Panics if contracted sizes don't match
 #[must_use]
@@ -275,15 +278,7 @@ pub fn contract(
     }
 
     // Find permutation for output tensor
-    let mut c_perm = vec![0; remaining.len()];
-    for i in 0..remaining.len() {
-        for j in 0..remaining.len() {
-            if out_indices[i] == remaining[j] {
-                c_perm[i] = j as i32;
-                break;
-            }
-        }
-    }
+    let c_perm = permutation_between(&remaining, out_indices);
 
     // Return transposed output tensor
     out.transpose(&c_perm);
