@@ -4,7 +4,7 @@ extern crate openblas_src;
 use cblas::{zgemm, Layout, Transpose};
 use hptt_sys::transpose_simple;
 use num_complex::Complex64;
-use permutation::{inv_permute, permutation_between, permute};
+use permutation::Permutation;
 
 pub mod permutation;
 
@@ -15,7 +15,7 @@ pub struct Tensor {
     shape: Vec<i32>,
 
     /// The current permutation of axes.
-    permutation: Vec<i32>,
+    permutation: Permutation,
 
     /// The tensor data in column-major order.
     data: Vec<Complex64>,
@@ -39,7 +39,7 @@ impl Tensor {
         let total_items = dimensions.iter().product::<i32>() as usize;
         Self {
             shape: dimensions.to_vec(),
-            permutation: (0..dimensions.len() as i32).collect(),
+            permutation: Permutation::identity(dimensions.len()),
             data: vec![Complex64::new(0.0, 0.0); total_items],
         }
     }
@@ -62,7 +62,7 @@ impl Tensor {
         // Construct tensor
         Self {
             shape: dimensions.to_vec(),
-            permutation: (0..dimensions.len() as i32).collect(),
+            permutation: Permutation::identity(dimensions.len()),
             data,
         }
     }
@@ -71,9 +71,20 @@ impl Tensor {
     /// This should not affect the tensor as observable from the outside (e.g. shape(),
     /// size(), get() and similar should show no difference).
     fn materialize_transpose(&mut self) {
-        self.data = transpose_simple(&self.permutation, &self.data, &self.shape);
-        self.shape = permute(&self.permutation, &self.shape);
-        self.permutation = (0..self.shape.len() as i32).collect();
+        // Get the permutation as [i32]
+        let perm: Vec<_> = self
+            .permutation
+            .order()
+            .iter()
+            .map(|x| (*x).try_into().unwrap())
+            .collect();
+
+        // Transpose data and shape
+        self.data = transpose_simple(&perm, &self.data, &self.shape);
+        self.shape = self.permutation.apply_inverse(&self.shape);
+
+        // Reset permutation
+        self.permutation = Permutation::identity(self.shape.len());
     }
 
     /// Computes the flat index given the accessed coordinates.
@@ -83,7 +94,7 @@ impl Tensor {
     /// Panics if the coordinates are invalid.
     fn compute_index(&self, coordinates: &[i32]) -> usize {
         // Get the unpermuted coordinates
-        let dims = inv_permute(&self.permutation, coordinates);
+        let dims = self.permutation.apply(&coordinates);
 
         // Validate coordinates
         assert_eq!(dims.len(), self.shape.len());
@@ -117,14 +128,15 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
+    /// # use tetra::permutation::Permutation;
     /// let mut t = Tensor::new(&[3, 2, 5, 4, 1]);
     /// assert_eq!(t.shape(), vec![3, 2, 5, 4, 1]);
-    /// t.transpose(&[3, 1, 4, 0, 2]);
+    /// t.transpose(&Permutation::new(vec![3, 1, 4, 0, 2]));
     /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
     /// ```
     #[must_use]
     pub fn shape(&self) -> Vec<i32> {
-        permute(&self.permutation, &self.shape)
+        self.permutation.apply_inverse(&self.shape)
     }
 
     /// Returns the size of a single axis or of the whole tensor.
@@ -148,8 +160,8 @@ impl Tensor {
 
     /// Transposes the tensor axes according to the permutation.
     /// This method does not modify the data but only the view, hence it's zero cost.
-    pub fn transpose(&mut self, permutation: &[i32]) {
-        self.permutation = permute(permutation, &self.permutation);
+    pub fn transpose(&mut self, permutation: &Permutation) {
+        self.permutation = &self.permutation * permutation;
     }
 }
 
@@ -186,16 +198,16 @@ pub fn contract(
     let mut a_remaining = 0;
     let mut a_contracted_size = 1;
     let mut a_remaining_size = 1;
-    let mut a_perm = vec![0i32; a_indices.len()];
+    let mut a_perm = vec![0; a_indices.len()];
     let mut contract_order = vec![0; contracted.len()];
     for (i, idx) in a_indices.iter().enumerate() {
         if contracted.contains(idx) {
-            a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i as i32;
+            a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i;
             contract_order[a_contracted] = *idx;
             a_contracted_size *= a.size(Some(i));
             a_contracted += 1;
         } else {
-            a_perm[a_remaining] = i as i32;
+            a_perm[a_remaining] = i;
             a_remaining += 1;
             a_remaining_size *= a.size(Some(i));
             remaining.push(*idx);
@@ -204,19 +216,19 @@ pub fn contract(
 
     // Get transposed A
     let mut a_transposed = a.clone();
-    a_transposed.transpose(&a_perm);
+    a_transposed.transpose(&Permutation::new(a_perm));
 
     // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for B
     let mut b_remaining = 0;
     let mut b_contracted_size = 1;
     let mut b_remaining_size = 1;
-    let mut b_perm = vec![0i32; b_indices.len()];
+    let mut b_perm = vec![0; b_indices.len()];
     for (i, idx) in b_indices.iter().enumerate() {
         if contracted.contains(idx) {
-            b_perm[contract_order.iter().position(|e| *e == *idx).unwrap()] = i as i32;
+            b_perm[contract_order.iter().position(|e| *e == *idx).unwrap()] = i;
             b_contracted_size *= b.size(Some(i));
         } else {
-            b_perm[contracted.len() + b_remaining] = i as i32;
+            b_perm[contracted.len() + b_remaining] = i;
             b_remaining += 1;
             b_remaining_size *= b.size(Some(i));
             remaining.push(*idx);
@@ -225,7 +237,7 @@ pub fn contract(
 
     // Get transposed B
     let mut b_transposed = b.clone();
-    b_transposed.transpose(&b_perm);
+    b_transposed.transpose(&Permutation::new(b_perm));
 
     // Make sure the connecting matrix dimensions match
     assert_eq!(a_contracted_size, b_contracted_size);
@@ -278,7 +290,7 @@ pub fn contract(
     }
 
     // Find permutation for output tensor
-    let c_perm = permutation_between(&remaining, out_indices);
+    let c_perm = Permutation::between(&remaining, out_indices);
 
     // Return transposed output tensor
     out.transpose(&c_perm);
@@ -323,16 +335,14 @@ mod tests {
         a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
         a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
 
-        a.transpose(&[1, 2, 0]);
+        a.transpose(&Permutation::new(vec![1, 2, 0]));
         assert_eq!(a.shape(), vec![3, 4, 2]);
-        assert_eq!(a.permutation, vec![1, 2, 0]);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 3, 0]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1]), Complex64::new(-5.0, 0.0));
 
-        a.transpose(&[1, 2, 0]);
+        a.transpose(&Permutation::new(vec![1, 2, 0]));
         assert_eq!(a.shape(), vec![4, 2, 3]);
-        assert_eq!(a.permutation, vec![2, 0, 1]);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[3, 0, 1]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[1, 1, 2]), Complex64::new(-5.0, 0.0));
@@ -345,14 +355,12 @@ mod tests {
         a.insert(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
         a.insert(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
 
-        a.transpose(&[1, 2, 0, 3]);
-        assert_eq!(a.permutation, [1, 2, 0, 3]);
+        a.transpose(&Permutation::new(vec![1, 2, 0, 3]));
         assert_eq!(a.shape(), vec![3, 4, 2, 5]);
         assert_eq!(a.get(&[0, 0, 0, 1]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1, 4]), Complex64::new(-5.0, 0.0));
         a.materialize_transpose();
-        assert_eq!(a.permutation, [0, 1, 2, 3]);
         assert_eq!(a.shape(), vec![3, 4, 2, 5]);
     }
 
