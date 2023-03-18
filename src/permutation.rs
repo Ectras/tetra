@@ -5,7 +5,7 @@ use std::{iter::zip, ops::Index};
 /// Represents a permutation of elements. `perm[i] = j` means that the element at
 /// position `i` of the input will be mapped by this permutation to position `j`
 /// in the output.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Permutation {
     /// Specifies where each element of the input maps to, i.e. `out[order[i]] = in[i]`.
     order: Vec<usize>,
@@ -13,6 +13,9 @@ pub struct Permutation {
 
 impl Permutation {
     /// Creates a permutation with the given order.
+    ///
+    /// # Panics
+    /// - Panics in debug if the order is not a consecutive sequence starting from 0
     ///
     /// # Example
     /// ```
@@ -22,6 +25,7 @@ impl Permutation {
     /// assert_eq!(p[1], 0);
     /// assert_eq!(p[2], 1);
     /// ```
+    #[must_use]
     pub fn new(order: Vec<usize>) -> Self {
         // Check validity
         if cfg!(debug_assertions) {
@@ -47,6 +51,7 @@ impl Permutation {
     /// assert_eq!(p[1], 1);
     /// assert_eq!(p[2], 2);
     /// ```
+    #[must_use]
     pub fn identity(size: usize) -> Self {
         Self {
             order: (0..size).collect(),
@@ -54,7 +59,8 @@ impl Permutation {
     }
 
     /// Gets a reference to the permutations order.
-    pub fn order(&self) -> &Vec<usize> {
+    #[must_use]
+    pub const fn order(&self) -> &Vec<usize> {
         &self.order
     }
 
@@ -70,6 +76,7 @@ impl Permutation {
     /// let p3 = Permutation::new(vec![2, 0, 1]);
     /// assert_eq!(p3.is_identity(), false);
     /// ```
+    #[must_use]
     pub fn is_identity(&self) -> bool {
         if self.len() == 0 {
             return true;
@@ -93,11 +100,15 @@ impl Permutation {
     /// let p = Permutation::identity(5);
     /// assert_eq!(p.len(), 5);
     /// ```
+    #[must_use]
     pub fn len(&self) -> usize {
         self.order.len()
     }
 
     /// Creates the permuted version of an array, i.e. `out[perm[i]] = in[i]`.
+    ///
+    /// # Panics
+    /// - Panics if the arrays length does not match the permutations length
     ///
     /// # Example
     /// ```
@@ -131,6 +142,9 @@ impl Permutation {
     }
 
     /// Creates the original version of an permuted array, i.e. `out[i] = in[perm[i]]`.
+    ///
+    /// # Panics
+    /// - Panics if the arrays length does not match the length of the permutation
     ///
     /// # Example
     /// ```
@@ -178,23 +192,23 @@ impl Permutation {
         // Check validity
         assert_eq!(a.len(), b.len());
         if cfg!(debug_assertions) {
-            let mut asorted = a.to_vec();
-            let mut bsorted = b.to_vec();
-            asorted.sort();
-            bsorted.sort();
+            let mut a_sorted = a.to_vec();
+            let mut b_sorted = b.to_vec();
+            a_sorted.sort();
+            b_sorted.sort();
             assert!(
-                asorted == bsorted,
+                a_sorted == b_sorted,
                 "The arrays must contain the same elements"
             );
         }
 
         let mut perm1 = (0..a.len()).collect::<Vec<_>>();
         let mut perm2 = perm1.clone();
-        perm1.sort_by_key(|i| a[*i as usize]);
-        perm2.sort_by_key(|i| b[*i as usize]);
+        perm1.sort_by_key(|i| a[*i]);
+        perm2.sort_by_key(|i| b[*i]);
         let mut out = vec![0; a.len()];
         for (i, j) in zip(perm1, perm2) {
-            out[j as usize] = i;
+            out[j] = i;
         }
         Self::new(out)
     }

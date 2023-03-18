@@ -95,7 +95,7 @@ impl Tensor {
     /// Panics if the coordinates are invalid.
     fn compute_index(&self, coordinates: &[u32]) -> usize {
         // Get the unpermuted coordinates
-        let dims = self.permutation.apply(&coordinates);
+        let dims = self.permutation.apply(coordinates);
 
         // Validate coordinates
         assert_eq!(dims.len(), self.shape.len());
