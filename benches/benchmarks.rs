@@ -24,11 +24,11 @@ fn consecutive_contraction(
     b: &Tensor,
     c: &Tensor,
     d: &Tensor,
-    b_indices: &[i32],
-    c_indices: &[i32],
-    out1_indices: &[i32],
-    d_indices: &[i32],
-    out2_indices: &[i32],
+    b_indices: &[u32],
+    c_indices: &[u32],
+    out1_indices: &[u32],
+    d_indices: &[u32],
+    out2_indices: &[u32],
 ) -> Tensor {
     let out1 = contract(out1_indices, b_indices, &b, c_indices, &c);
     let out2 = contract(out2_indices, d_indices, &d, out1_indices, &out1);

@@ -174,10 +174,10 @@ impl Tensor {
 /// - Panics if contracted sizes don't match
 #[must_use]
 pub fn contract(
-    out_indices: &[i32],
-    a_indices: &[i32],
+    out_indices: &[u32],
+    a_indices: &[u32],
     a: &Tensor,
-    b_indices: &[i32],
+    b_indices: &[u32],
     b: &Tensor,
 ) -> Tensor {
     assert_eq!(a_indices.len(), a.shape.len());
