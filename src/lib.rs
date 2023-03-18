@@ -12,7 +12,7 @@ pub mod permutation;
 #[derive(Clone, Debug)]
 pub struct Tensor {
     /// The shape of the tensor.
-    shape: Vec<i32>,
+    shape: Vec<u32>,
 
     /// The current permutation of axes.
     permutation: Permutation,
@@ -26,37 +26,31 @@ impl Tensor {
     /// The tensor is initialized with zeros.
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty or non-positive
+    /// - Panics if the dimensions are empty
     #[must_use]
-    pub fn new(dimensions: &[i32]) -> Self {
+    pub fn new(dimensions: &[u32]) -> Self {
         // Validity checks
         assert!(!dimensions.is_empty());
-        for dim in dimensions {
-            assert!(0 <= *dim);
-        }
 
         // Construct tensor
-        let total_items = dimensions.iter().product::<i32>() as usize;
+        let total_items = dimensions.iter().product::<u32>();
         Self {
             shape: dimensions.to_vec(),
             permutation: Permutation::identity(dimensions.len()),
-            data: vec![Complex64::new(0.0, 0.0); total_items],
+            data: vec![Complex64::new(0.0, 0.0); total_items.try_into().unwrap()],
         }
     }
 
     /// Creates a new tensor with the given dimensions and the corresponding data.
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty or non-positive
+    /// - Panics if the dimensions are empty
     /// - Panics if the length of the data does not match with the dimensions given
     #[must_use]
-    pub fn new_from_flat(dimensions: &[i32], data: Vec<Complex64>) -> Self {
+    pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>) -> Self {
         // Validity checks
         assert!(!dimensions.is_empty());
-        for dim in dimensions {
-            assert!(0 <= *dim);
-        }
-        let total_items = dimensions.iter().product::<i32>() as usize;
+        let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
         assert_eq!(total_items, data.len());
 
         // Construct tensor
@@ -79,8 +73,15 @@ impl Tensor {
             .map(|x| (*x).try_into().unwrap())
             .collect();
 
+        // Get the shape as [i32]
+        let shape: Vec<_> = self
+            .shape
+            .iter()
+            .map(|x| (*x).try_into().unwrap())
+            .collect();
+
         // Transpose data and shape
-        self.data = transpose_simple(&perm, &self.data, &self.shape);
+        self.data = transpose_simple(&perm, &self.data, &shape);
         self.shape = self.permutation.apply_inverse(&self.shape);
 
         // Reset permutation
@@ -92,14 +93,14 @@ impl Tensor {
     ///
     /// # Panics
     /// Panics if the coordinates are invalid.
-    fn compute_index(&self, coordinates: &[i32]) -> usize {
+    fn compute_index(&self, coordinates: &[u32]) -> usize {
         // Get the unpermuted coordinates
         let dims = self.permutation.apply(&coordinates);
 
         // Validate coordinates
         assert_eq!(dims.len(), self.shape.len());
         for i in 0..dims.len() {
-            assert!(0 <= dims[i] && dims[i] < self.shape[i]);
+            assert!(dims[i] < self.shape[i]);
         }
 
         // Compute index
@@ -107,18 +108,18 @@ impl Tensor {
         for i in (0..dims.len() - 1).rev() {
             idx = dims[i] + self.shape[i] * idx;
         }
-        idx as usize
+        idx.try_into().unwrap()
     }
 
     /// Inserts a value at the given position.
-    pub fn insert(&mut self, coordinates: &[i32], value: Complex64) {
+    pub fn insert(&mut self, coordinates: &[u32], value: Complex64) {
         let idx = self.compute_index(coordinates);
         self.data[idx] = value;
     }
 
     /// Gets the value at the given position.
     #[must_use]
-    pub fn get(&self, coordinates: &[i32]) -> Complex64 {
+    pub fn get(&self, coordinates: &[u32]) -> Complex64 {
         let idx = self.compute_index(coordinates);
         self.data[idx]
     }
@@ -135,7 +136,7 @@ impl Tensor {
     /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
     /// ```
     #[must_use]
-    pub fn shape(&self) -> Vec<i32> {
+    pub fn shape(&self) -> Vec<u32> {
         self.permutation.apply_inverse(&self.shape)
     }
 
@@ -150,11 +151,11 @@ impl Tensor {
     /// assert_eq!(t.size(Some(2)), 5);
     /// ```
     #[must_use]
-    pub fn size(&self, axis: Option<usize>) -> i32 {
+    pub fn size(&self, axis: Option<usize>) -> u32 {
         if let Some(axis) = axis {
-            self.shape[self.permutation[axis] as usize]
+            self.shape[self.permutation[axis]]
         } else {
-            self.data.len() as i32
+            self.data.len().try_into().unwrap()
         }
     }
 
@@ -275,17 +276,17 @@ pub fn contract(
             Layout::ColumnMajor,
             Transpose::None,
             Transpose::None,
-            a_remaining_size,
-            b_remaining_size,
-            b_contracted_size,
+            a_remaining_size.try_into().unwrap(),
+            b_remaining_size.try_into().unwrap(),
+            b_contracted_size.try_into().unwrap(),
             Complex64::new(1.0, 0.0),
             &a_transposed.data,
-            a_remaining_size,
+            a_remaining_size.try_into().unwrap(),
             &b_transposed.data,
-            b_contracted_size,
+            b_contracted_size.try_into().unwrap(),
             Complex64::new(0.0, 0.0),
             &mut out.data,
-            a_remaining_size,
+            a_remaining_size.try_into().unwrap(),
         );
     }
 
