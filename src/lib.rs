@@ -61,6 +61,23 @@ impl Tensor {
         }
     }
 
+    /// Creates a new tensor without actual data.
+    /// 
+    /// # Panics
+    /// - Panics if the dimensions are empty
+    fn new_uninitialized(dimensions: &[u32]) -> Self {
+        // Validity checks
+        assert!(!dimensions.is_empty());
+
+        // Construct tensor
+        let total_items = dimensions.iter().product::<u32>();
+        Self {
+            shape: dimensions.to_vec(),
+            permutation: Permutation::identity(dimensions.len()),
+            data: Vec::with_capacity(total_items.try_into().unwrap()),
+        }
+    }
+
     /// Actually transposes the underlying data according to the current axis permutation.
     /// This should not affect the tensor as observable from the outside (e.g. shape(),
     /// size(), get() and similar should show no difference).
@@ -266,7 +283,7 @@ pub fn contract(
     }
 
     // Create output tensor
-    let mut out = Tensor::new(&c_shape);
+    let mut out = Tensor::new_uninitialized(&c_shape);
 
     // Compute ZGEMM
     a_transposed.materialize_transpose();
@@ -288,6 +305,11 @@ pub fn contract(
             &mut out.data,
             a_remaining_size.try_into().unwrap(),
         );
+    }
+
+    // Update the data length to the written length
+    unsafe {
+        out.data.set_len(out.data.capacity());
     }
 
     // Find permutation for output tensor
