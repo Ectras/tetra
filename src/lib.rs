@@ -14,8 +14,13 @@ pub struct Tensor {
     /// The shape of the tensor.
     shape: Vec<u32>,
 
-    /// The current permutation of axes.
-    permutation: Permutation,
+    /// The current inverse permutation. Using the inverse is easier, because it
+    /// maps from a given output element to the corresponding input element. E.g.,
+    /// getting the size of a permutated axis is just `shape[inv_permutation[axis]]`.
+    /// The original permutation, on the other hand, maps a given input element to
+    /// the corresponding output output element. The above example would be similar
+    /// to `shape[permutation.index_of(axis)]`.
+    inv_permutation: Permutation,
 
     /// The tensor data in column-major order.
     data: Vec<Complex64>,
@@ -36,7 +41,7 @@ impl Tensor {
         let total_items = dimensions.iter().product::<u32>();
         Self {
             shape: dimensions.to_vec(),
-            permutation: Permutation::identity(dimensions.len()),
+            inv_permutation: Permutation::identity(dimensions.len()),
             data: vec![Complex64::new(0.0, 0.0); total_items.try_into().unwrap()],
         }
     }
@@ -56,7 +61,7 @@ impl Tensor {
         // Construct tensor
         Self {
             shape: dimensions.to_vec(),
-            permutation: Permutation::identity(dimensions.len()),
+            inv_permutation: Permutation::identity(dimensions.len()),
             data,
         }
     }
@@ -73,7 +78,7 @@ impl Tensor {
         let total_items = dimensions.iter().product::<u32>();
         Self {
             shape: dimensions.to_vec(),
-            permutation: Permutation::identity(dimensions.len()),
+            inv_permutation: Permutation::identity(dimensions.len()),
             data: Vec::with_capacity(total_items.try_into().unwrap()),
         }
     }
@@ -85,7 +90,7 @@ impl Tensor {
     /// Panics if the coordinates are invalid.
     fn compute_index(&self, coordinates: &[u32]) -> usize {
         // Get the unpermuted coordinates
-        let dims = self.permutation.apply(coordinates);
+        let dims = self.inv_permutation.apply(coordinates);
 
         // Validate coordinates
         assert_eq!(dims.len(), self.shape.len());
@@ -127,7 +132,7 @@ impl Tensor {
     /// ```
     #[must_use]
     pub fn shape(&self) -> Vec<u32> {
-        self.permutation.apply_inverse(&self.shape)
+        self.inv_permutation.apply_inverse(&self.shape)
     }
 
     /// Returns the size of a single axis or of the whole tensor.
@@ -143,7 +148,7 @@ impl Tensor {
     #[must_use]
     pub fn size(&self, axis: Option<usize>) -> u32 {
         if let Some(axis) = axis {
-            self.shape[self.permutation[axis]]
+            self.shape[self.inv_permutation[axis]]
         } else {
             self.data.len().try_into().unwrap()
         }
@@ -151,8 +156,10 @@ impl Tensor {
 
     /// Transposes the tensor axes according to the permutation.
     /// This method does not modify the data but only the view, hence it's zero cost.
-    pub fn transpose(&mut self, permutation: &Permutation) {
-        self.permutation = &self.permutation * permutation;
+    /// The permutation is interpreted as an inverse permutation wich matches the
+    /// numpy convention.
+    pub fn transpose(&mut self, inv_permutation: &Permutation) {
+        self.inv_permutation = &self.inv_permutation * inv_permutation;
     }
 
     /// Computes the transposed data based on the current permutation.
@@ -179,14 +186,16 @@ impl Tensor {
     /// This should not affect the tensor as observable from the outside (e.g. shape(),
     /// size(), get() and similar should show no difference).
     fn materialize_transpose(&mut self) {
-        self.data = self.compute_transposed_data(&self.permutation);
-        self.shape = self.permutation.apply_inverse(&self.shape);
-        self.permutation = Permutation::identity(self.shape.len());
+        self.data = self.compute_transposed_data(&self.inv_permutation);
+        self.shape = self.inv_permutation.apply_inverse(&self.shape);
+        self.inv_permutation = Permutation::identity(self.shape.len());
     }
 
     /// Creates the transposed tensor. Performs a full data copy.
-    pub fn transposed(&self, permutation: &Permutation) -> Self {
-        let perm = &self.permutation * permutation;
+    /// The permutation is interpreted as an inverse permutation wich matches the
+    /// numpy convention.
+    pub fn transposed(&self, inv_permutation: &Permutation) -> Self {
+        let perm = &self.inv_permutation * inv_permutation;
         let data = self.compute_transposed_data(&perm);
         let shape = perm.apply_inverse(&self.shape);
         Self::new_from_flat(&shape, data)
