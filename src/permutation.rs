@@ -167,8 +167,28 @@ impl Permutation {
         (0..array.len()).map(|i| array[self[i]]).collect()
     }
 
-    /// Finds the permutation that is needed to transform `b` to `a`. It is assumed that both
-    /// slices contain the same elements.
+    /// Creates the inverse permutation. Applying the inverse permutation is the same
+    /// as using the inverse apply of the original permutation.
+    ///
+    /// # Example
+    /// ```
+    /// # use tetra::permutation::Permutation;
+    /// let p = Permutation::new(vec![3, 2, 0, 1]);
+    /// let p_inv = p.inverse();
+    /// assert_eq!(p_inv[0], 2);
+    /// assert_eq!(p_inv[1], 3);
+    /// assert_eq!(p_inv[2], 1);
+    /// assert_eq!(p_inv[3], 0);
+    /// ```
+    #[must_use]
+    pub fn inverse(&self) -> Self {
+        let identity: Vec<_> = (0..self.len()).collect();
+        let new_order = self.apply(&identity);
+        Self { order: new_order }
+    }
+
+    /// Finds the permutation that is needed to transform `b` to `a`. It is assumed
+    /// that both slices contain the same elements.
     ///
     /// # Panics
     /// - Panics if the slices have different sizes
@@ -250,7 +270,7 @@ mod tests {
     use super::Permutation;
 
     #[test]
-    fn permute_and_inverse() {
+    fn apply_and_apply_inverse_is_identity() {
         let data = &['a', 'b', 'c', 'd', 'e', 'f'];
         let p1 = Permutation::new(vec![3, 4, 2, 0, 5, 1]);
         let p2 = Permutation::new(vec![5, 2, 0, 4, 1, 3]);
@@ -263,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn permute_between() {
+    fn permute_between_and_apply() {
         let data1 = &[4, 1, 0, 2, 3];
         let data2 = &[3, 4, 1, 0, 2];
         let data3 = &[3, 1, 4, 2, 0];
@@ -284,5 +304,21 @@ mod tests {
         let data2 = p2.apply(&data1);
         let data12 = (&p1 * &p2).apply(&data);
         assert_eq!(data12, data2);
+    }
+
+    #[test]
+    fn apply_inverse_and_inverse() {
+        let data = &['a', 'b', 'c', 'd', 'e', 'f'];
+        let p = Permutation::new(vec![4, 0, 2, 3, 5, 1]);
+        let p_inv = p.inverse();
+
+        assert_eq!(p_inv.apply(data), p.apply_inverse(data));
+        assert_eq!(p_inv.apply_inverse(data), p.apply(data));
+    }
+
+    #[test]
+    fn inverse_inverse() {
+        let p = Permutation::new(vec![4, 0, 2, 3, 5, 1]);
+        assert_eq!(p.inverse().inverse(), p);
     }
 }
