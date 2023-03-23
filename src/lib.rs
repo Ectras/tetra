@@ -62,7 +62,7 @@ impl Tensor {
     }
 
     /// Creates a new tensor without actual data.
-    /// 
+    ///
     /// # Panics
     /// - Panics if the dimensions are empty
     fn new_uninitialized(dimensions: &[u32]) -> Self {
@@ -76,33 +76,6 @@ impl Tensor {
             permutation: Permutation::identity(dimensions.len()),
             data: Vec::with_capacity(total_items.try_into().unwrap()),
         }
-    }
-
-    /// Actually transposes the underlying data according to the current axis permutation.
-    /// This should not affect the tensor as observable from the outside (e.g. shape(),
-    /// size(), get() and similar should show no difference).
-    fn materialize_transpose(&mut self) {
-        // Get the permutation as [i32]
-        let perm: Vec<_> = self
-            .permutation
-            .order()
-            .iter()
-            .map(|x| (*x).try_into().unwrap())
-            .collect();
-
-        // Get the shape as [i32]
-        let shape: Vec<_> = self
-            .shape
-            .iter()
-            .map(|x| (*x).try_into().unwrap())
-            .collect();
-
-        // Transpose data and shape
-        self.data = transpose_simple(&perm, &self.data, &shape);
-        self.shape = self.permutation.apply_inverse(&self.shape);
-
-        // Reset permutation
-        self.permutation = Permutation::identity(self.shape.len());
     }
 
     /// Computes the flat index given the accessed coordinates.
@@ -181,6 +154,43 @@ impl Tensor {
     pub fn transpose(&mut self, permutation: &Permutation) {
         self.permutation = &self.permutation * permutation;
     }
+
+    /// Computes the transposed data based on the current permutation.
+    fn compute_transposed_data(&self, permutation: &Permutation) -> Vec<Complex64> {
+        // Get the permutation as [i32]
+        let perm: Vec<_> = permutation
+            .order()
+            .iter()
+            .map(|x| (*x).try_into().unwrap())
+            .collect();
+
+        // Get the shape as [i32]
+        let shape: Vec<_> = self
+            .shape
+            .iter()
+            .map(|x| (*x).try_into().unwrap())
+            .collect();
+
+        // Transpose data and shape
+        transpose_simple(&perm, &self.data, &shape)
+    }
+
+    /// Actually transposes the underlying data according to the current axis permutation.
+    /// This should not affect the tensor as observable from the outside (e.g. shape(),
+    /// size(), get() and similar should show no difference).
+    fn materialize_transpose(&mut self) {
+        self.data = self.compute_transposed_data(&self.permutation);
+        self.shape = self.permutation.apply_inverse(&self.shape);
+        self.permutation = Permutation::identity(self.shape.len());
+    }
+
+    /// Creates the transposed tensor. Performs a full data copy.
+    pub fn transposed(&self, permutation: &Permutation) -> Self {
+        let perm = &self.permutation * permutation;
+        let data = self.compute_transposed_data(&perm);
+        let shape = perm.apply_inverse(&self.shape);
+        Self::new_from_flat(&shape, data)
+    }
 }
 
 /// Contracts two tensors a and b, writing the result to the out tensor.
@@ -233,8 +243,7 @@ pub fn contract(
     }
 
     // Get transposed A
-    let mut a_transposed = a.clone();
-    a_transposed.transpose(&Permutation::new(a_perm));
+    let a_transposed = a.transposed(&Permutation::new(a_perm));
 
     // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for B
     let mut b_remaining = 0;
@@ -254,8 +263,7 @@ pub fn contract(
     }
 
     // Get transposed B
-    let mut b_transposed = b.clone();
-    b_transposed.transpose(&Permutation::new(b_perm));
+    let b_transposed = b.transposed(&Permutation::new(b_perm));
 
     // Make sure the connecting matrix dimensions match
     assert_eq!(a_contracted_size, b_contracted_size);
@@ -286,8 +294,6 @@ pub fn contract(
     let mut out = Tensor::new_uninitialized(&c_shape);
 
     // Compute ZGEMM
-    a_transposed.materialize_transpose();
-    b_transposed.materialize_transpose();
     unsafe {
         zgemm(
             Layout::ColumnMajor,
