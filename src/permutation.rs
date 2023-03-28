@@ -28,14 +28,12 @@ impl Permutation {
     #[must_use]
     pub fn new(order: Vec<usize>) -> Self {
         // Check validity
-        if cfg!(debug_assertions) {
-            let mut sorted = order.clone();
-            sorted.sort_unstable();
-            assert!(
-                sorted == (0..order.len()).collect::<Vec<_>>(),
-                "The order must be a consecutive sequence starting from 0"
-            );
-        }
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert!(
+            sorted == (0..order.len()).collect::<Vec<_>>(),
+            "The order must be a consecutive sequence starting from 0"
+        );
 
         // Construct permutation
         Self { order }
@@ -211,16 +209,14 @@ impl Permutation {
     {
         // Check validity
         assert_eq!(a.len(), b.len());
-        if cfg!(debug_assertions) {
-            let mut a_sorted = a.to_vec();
-            let mut b_sorted = b.to_vec();
-            a_sorted.sort();
-            b_sorted.sort();
-            assert!(
-                a_sorted == b_sorted,
-                "The arrays must contain the same elements"
-            );
-        }
+        let mut a_sorted = a.to_vec();
+        let mut b_sorted = b.to_vec();
+        a_sorted.sort();
+        b_sorted.sort();
+        assert!(
+            a_sorted == b_sorted,
+            "The arrays must contain the same elements"
+        );
 
         let mut perm1 = (0..a.len()).collect::<Vec<_>>();
         let mut perm2 = perm1.clone();
