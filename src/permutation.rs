@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn composition() {
+    fn multiplication() {
         let data = ['a', 'b', 'c', 'd', 'e'];
         let p1 = Permutation::new(vec![3, 0, 2, 4, 1]);
         let p2 = Permutation::new(vec![1, 4, 0, 2, 3]);
@@ -317,8 +317,31 @@ mod tests {
     }
 
     #[test]
+    fn multiply_with_inverse_is_identity() {
+        let p1 = Permutation::new(vec![3, 4, 2, 0, 5, 1]);
+        let p2 = Permutation::new(vec![5, 2, 0, 4, 1, 3]);
+        assert!((&p1 * &p1.inverse()).is_identity());
+        assert!((&p1.inverse() * &p1).is_identity());
+        assert!((&p2 * &p2.inverse()).is_identity());
+        assert!((&p2.inverse() * &p2).is_identity());
+    }
+
+    #[test]
+    fn multiply_with_identity_is_self() {
+        let p1 = Permutation::new(vec![0, 3, 4, 2, 5, 1]);
+        let p2 = Permutation::new(vec![5, 2, 1, 4, 0, 3]);
+        let pid = Permutation::identity(6);
+        assert_eq!(&p1 * &pid, p1);
+        assert_eq!(&pid * &p1, p1);
+        assert_eq!(&p2 * &pid, p2);
+        assert_eq!(&pid * &p2, p2);
+    }
+
+    #[test]
     fn inverse_inverse() {
-        let p = Permutation::new(vec![4, 0, 2, 3, 5, 1]);
-        assert_eq!(p.inverse().inverse(), p);
+        let p1 = Permutation::new(vec![5, 1, 3, 0, 2, 4]);
+        let p2 = Permutation::new(vec![0, 3, 4, 1, 2, 5]);
+        assert_eq!(p1.inverse().inverse(), p1);
+        assert_eq!(p2.inverse().inverse(), p2);
     }
 }
