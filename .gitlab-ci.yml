@@ -1,3 +1,9 @@
+stages:
+  - check
+  - build
+  - test
+  - deploy
+
 .rust-default:
   image: ubuntu:latest
   before_script:
@@ -49,6 +55,20 @@ default:
   tags:
     - kubernetes
 
+check:clippy:
+  stage: check
+  extends: .rust-default
+  script:
+    - cargo clippy --color always --workspace --all-features --all-targets --no-deps -- -Dwarnings
+  allow_failure: true
+
+check:fmt:
+  stage: check
+  extends: .rust-default
+  script:
+    - cargo fmt -- --check --color always
+  allow_failure: true
+
 build:
   stage: build
   extends: .rust-default
@@ -57,7 +77,7 @@ build:
     - rustc --version
 
     # Build the project
-    - cargo build -vv
+    - cargo build -vv --color always
 
   artifacts:
     paths:
@@ -75,30 +95,26 @@ build:docs:
 test:
   stage: test
   extends: .rust-default
-  dependencies:
+  needs:
     - build
   script:
     - cargo test --color always --workspace --no-fail-fast
 
-clippy:
-  stage: test
-  extends: .rust-default
-  dependencies:
-    - build
-  script:
-    - cargo clippy --color always --workspace --all-features --all-targets --no-deps -- -Dwarnings
-  allow_failure: true
-
 pages:
   stage: deploy
   image: alpine:latest
+  needs:
+    - job: test
+      artifacts: false
+    - build:docs
   dependencies:
     - test
     - build:docs
   script:
     - mv target/doc public/
+    - echo '<meta http-equiv="refresh" content="0; url=tetra">' > public/index.html
   artifacts:
     paths:
       - public
-  #only:
-  #  - main
+  only:
+    - main
