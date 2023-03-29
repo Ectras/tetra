@@ -46,7 +46,7 @@ default:
   tags:
     - kubernetes
 
-rust:
+build:
   stage: build
   script:
     # Install packages for building dependencies
@@ -55,5 +55,22 @@ rust:
     # Report on the used Rust version
     - rustc --version
 
+    # Build the project
     - cargo build -vv
+
+  artifacts:
+    paths:
+      - target/debug/*
+
+test:
+  stage: test
+  dependencies:
+    - build
+  script:
     - cargo test
+    - cargo install junitify
+    - cargo test -- --format=json -Z unstable-options --report-time | junitify --out $CI_PROJECT_DIR/tests%
+  artifacts:
+    when: always
+    reports:
+      junit: $CI_PROJECT_DIR/tests/*.xml
