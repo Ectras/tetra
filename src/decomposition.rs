@@ -21,7 +21,7 @@ impl Decomposition for Tensor {
         // Leading dimension of `self`
         let lda = max(1, m);
 
-        let mut jpvt: Vec<i32> = (1..n + 1).collect();
+        let mut jpvt = (1..n as i32 + 1).collect::<Vec<i32>>();
 
         // The scalar factors of the elementary reflectors.
         let mut tau = vec![Complex64::new(0.0, 0.0); min_dim];
@@ -39,10 +39,10 @@ impl Decomposition for Tensor {
 
         unsafe {
             zgeqp3(
-                m,
-                n,
+                m.try_into().unwrap(),
+                n.try_into().unwrap(),
                 &mut self.data,
-                lda,
+                lda.try_into().unwrap(),
                 &mut jpvt,
                 &mut tau,
                 &mut work,
@@ -79,18 +79,18 @@ impl Decomposition for Tensor {
 
         // copy out upper right triangular matrix to taco tensor `r`
         for j in 0..n {
-            for i in 0..min(min_dim as i32, j + 1) {
+            for i in 0..min(min_dim as u32, j + 1) {
                 r_tensor.insert(&[i, j], self.get(&[i, j]));
             }
         }
 
         unsafe {
             zungqr(
-                m,
-                min(m, n),
-                min(m, n),
+                m.try_into().unwrap(),
+                min(m, n).try_into().unwrap(),
+                min(m, n).try_into().unwrap(),
                 &mut self.data,
-                lda,
+                lda.try_into().unwrap(),
                 &tau,
                 &mut work,
                 lwork,
@@ -120,7 +120,7 @@ impl Decomposition for Tensor {
         // Leading dimension of `u_tensor`
         let ldu = m;
         // Leading dimension of `vt_tensor`
-        let ldvt = min_dim as i32;
+        let ldvt = min_dim as u32;
         // Using double vector as stand in until other Tensor types defined
         let mut s = vec![0.0; min_dim];
 
@@ -152,15 +152,15 @@ impl Decomposition for Tensor {
         unsafe {
             zgesdd(
                 b'S',
-                m,
-                n,
+                m.try_into().unwrap(),
+                n.try_into().unwrap(),
                 &mut self.data,
-                lda,
+                lda.try_into().unwrap(),
                 &mut s,
                 &mut u_tensor.data,
-                ldu,
+                ldu.try_into().unwrap(),
                 &mut vt_tensor.data,
-                ldvt,
+                ldvt.try_into().unwrap(),
                 &mut work,
                 lwork,
                 &mut rwork,
@@ -178,15 +178,15 @@ impl Decomposition for Tensor {
         unsafe {
             zgesdd(
                 b'S',
-                m,
-                n,
+                m.try_into().unwrap(),
+                n.try_into().unwrap(),
                 &mut self.data,
-                lda,
+                lda.try_into().unwrap(),
                 &mut s,
                 &mut u_tensor.data,
-                ldu,
+                ldu.try_into().unwrap(),
                 &mut vt_tensor.data,
-                ldvt,
+                ldvt.try_into().unwrap(),
                 &mut work,
                 lwork,
                 &mut rwork,
