@@ -60,7 +60,15 @@ build:
 
   artifacts:
     paths:
-      - target/debug/*
+      - target/debug
+
+build:docs:
+  stage: build
+  script:
+    - cargo doc --color always --no-deps
+  artifacts:
+    paths:
+      - target/doc
 
 test:
   stage: test
@@ -74,5 +82,19 @@ clippy:
   dependencies:
     - build
   script:
-    - RUSTFLAGS="-Dwarnings" cargo clippy --color always --workspace --all-features --all-targets
+    - cargo clippy --color always --workspace --all-features --all-targets --no-deps -- -Dwarnings
   allow_failure: true
+
+pages:
+  stage: deploy
+  image: alpine
+  dependencies:
+    - build
+    - build:docs
+  script:
+    - mv target/doc public/
+  artifacts:
+    paths:
+      - public
+  #only:
+  #  - main
