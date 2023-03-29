@@ -96,8 +96,8 @@ impl Tensor {
 
         // Validate coordinates
         assert_eq!(dims.len(), self.shape.len());
-        for i in 0..dims.len() {
-            assert!(dims[i] < self.shape[i]);
+        for (i, &dim_i) in dims.iter().enumerate() {
+            assert!(dim_i < self.shape[i]);
         }
 
         // Compute index
@@ -139,6 +139,9 @@ impl Tensor {
 
     /// Returns the size of a single axis or of the whole tensor.
     ///
+    /// # Panics
+    /// Panics if the total size is requested and it is larger than u32.
+    ///
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
@@ -164,6 +167,7 @@ impl Tensor {
     /// assert_eq!(Tensor::new(&[1, 2]).ndim(), 2);
     /// assert_eq!(Tensor::new(&[1, 3, 6, 5]).ndim(), 4);
     /// ```
+    #[must_use]
     pub fn ndim(&self) -> usize {
         self.shape.len()
     }
@@ -208,6 +212,7 @@ impl Tensor {
     /// Creates the transposed tensor. Performs a full data copy.
     /// The permutation is interpreted as an inverse permutation wich matches the
     /// numpy convention.
+    #[must_use]
     pub fn transposed(&self, inv_permutation: &Permutation) -> Self {
         let perm = &self.inv_permutation * inv_permutation;
         let data = self.compute_transposed_data(&perm);

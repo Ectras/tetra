@@ -21,19 +21,19 @@ impl Decomposition for Tensor {
         // Leading dimension of `self`
         let lda = max(1, m);
 
-        let mut jpvt = (1..n as i32 + 1).collect::<Vec<i32>>();
+        let mut jpvt = (1..=(n as i32)).collect::<Vec<i32>>();
 
         // The scalar factors of the elementary reflectors.
         let mut tau = Vec::with_capacity(min_dim);
 
         // Set to -1 to query optimal scratch space
         let mut lwork = -1;
-        
+
         // Complex work scratch space
         let mut work = vec![Complex64::new(0.0, 0.0); 1];
 
         // Double scratch space
-        let mut rwork = Vec::with_capacity(2*n as usize);
+        let mut rwork = Vec::with_capacity(2 * n as usize);
 
         // Return 0 if successful
         let mut info = 0;
@@ -75,8 +75,8 @@ impl Decomposition for Tensor {
         }
 
         assert!(info == 0, "QR decomposition did not converge ");
-        let mut q_tensor = Tensor::new(&[m, n]);
-        let mut r_tensor = Tensor::new(&[n, n]);
+        let mut q_tensor = Self::new(&[m, n]);
+        let mut r_tensor = Self::new(&[n, n]);
 
         // copy out upper right triangular matrix to taco tensor `r`
         for j in 0..n {
@@ -126,9 +126,9 @@ impl Decomposition for Tensor {
         let mut s = vec![0.0; min_dim];
 
         // TODO: Add different Tensor types that allow for diagonal tensors
-        let mut u_tensor = Tensor::new(&[m, ldvt]);
-        let mut vt_tensor = Tensor::new(&[ldvt, n]);
-        let mut s_tensor = Tensor::new(&[ldvt, ldvt]);
+        let mut u_tensor = Self::new(&[m, ldvt]);
+        let mut vt_tensor = Self::new(&[ldvt, n]);
+        let mut s_tensor = Self::new(&[ldvt, ldvt]);
 
         // Set to -1 to query optimal scratch space
         let mut lwork = -1;
@@ -139,7 +139,7 @@ impl Decomposition for Tensor {
         // Double scratch space
         let mut rwork = Vec::with_capacity(max(
             5 * (min_dim << 2) + 5 * min_dim,
-            2 * (max_dim << 2) + 2 * (min_dim << 2) + min_dim
+            2 * (max_dim << 2) + 2 * (min_dim << 2) + min_dim,
         ));
         // Integer scratch space
         let mut iwork = Vec::with_capacity(8 * min_dim);
@@ -163,7 +163,7 @@ impl Decomposition for Tensor {
                 &mut rwork,
                 &mut iwork,
                 &mut info,
-            )
+            );
         }
 
         // Get optimal work size
@@ -189,7 +189,7 @@ impl Decomposition for Tensor {
                 &mut rwork,
                 &mut iwork,
                 &mut info,
-            )
+            );
         }
         // Fill in s_tensor
         for i in 0..ldvt {

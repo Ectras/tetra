@@ -30,9 +30,8 @@ fn consecutive_contraction(
     d_indices: &[u32],
     out2_indices: &[u32],
 ) -> Tensor {
-    let out1 = contract(out1_indices, b_indices, &b, c_indices, &c);
-    let out2 = contract(out2_indices, d_indices, &d, out1_indices, &out1);
-    out2
+    let out1 = contract(out1_indices, b_indices, b, c_indices, c);
+    contract(out2_indices, d_indices, d, out1_indices, &out1)
 }
 
 pub fn contraction_benchmark(criterion: &mut Criterion) {
@@ -55,7 +54,7 @@ pub fn contraction_benchmark(criterion: &mut Criterion) {
                 black_box(&[5, 4, 0]),
                 black_box(&[3]),
             )
-        })
+        });
     });
     group.finish();
 }

@@ -16,7 +16,7 @@ impl Permutation {
     /// Creates a permutation with the given order.
     ///
     /// # Panics
-    /// - Panics in debug if the order is not a consecutive sequence starting from 0
+    /// Panics in debug if the order is not a consecutive sequence starting from 0.
     ///
     /// # Example
     /// ```
@@ -77,7 +77,7 @@ impl Permutation {
     /// ```
     #[must_use]
     pub fn is_identity(&self) -> bool {
-        if self.len() == 0 {
+        if self.is_empty() {
             return true;
         }
 
@@ -104,10 +104,24 @@ impl Permutation {
         self.order.len()
     }
 
+    /// Returns whether the permutation is an empty function (defined on the empty
+    /// set) or not.
+    ///
+    /// # Example
+    /// ```
+    /// # use tetra::permutation::Permutation;
+    /// let p = Permutation::new(Vec::new());
+    /// assert!(p.is_empty());
+    /// ```
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
     /// Creates the permuted version of an array, i.e. `out[perm[i]] = in[i]`.
     ///
     /// # Panics
-    /// - Panics if the arrays length does not match the permutations length
+    /// Panics if the arrays length does not match the permutations length.
     ///
     /// # Example
     /// ```
@@ -141,10 +155,10 @@ impl Permutation {
     }
 
     /// Applies the permutation to the array in-place. Uses O(n) extra memory.
-    /// 
+    ///
     /// # Panics
-    /// - Panics if the arrays length does not match the length of the permutation
-    /// 
+    /// Panics if the arrays length does not match the length of the permutation.
+    ///
     /// # Example
     /// ```
     /// # use tetra::permutation::Permutation;
@@ -177,7 +191,7 @@ impl Permutation {
     /// Creates the original version of an permuted array, i.e. `out[i] = in[perm[i]]`.
     ///
     /// # Panics
-    /// - Panics if the arrays length does not match the length of the permutation
+    /// Panics if the arrays length does not match the length of the permutation.
     ///
     /// # Example
     /// ```
@@ -202,10 +216,10 @@ impl Permutation {
 
     /// Applies the inverse permutation to the array in-place, without extra memory
     /// allocation.
-    /// 
+    ///
     /// # Panics
-    /// - Panics if the arrays length does not match the length of the permutation
-    /// 
+    /// Panics if the arrays length does not match the length of the permutation.
+    ///
     /// # Example
     /// ```
     /// # use tetra::permutation::Permutation;
@@ -253,7 +267,7 @@ impl Permutation {
     /// that both slices contain the same elements.
     ///
     /// # Panics
-    /// - Panics if the slices have different sizes
+    /// Panics if the slices have different sizes.
     ///
     /// # Examples
     /// ```
@@ -412,20 +426,20 @@ mod tests {
         let p2 = Permutation::new(vec![5, 2, 0, 4, 1, 3]);
         let p3 = Permutation::new(vec![5, 0, 4, 2, 3, 1]);
         let p4 = Permutation::new(vec![2, 3, 0, 1, 5, 4]);
-        
-        let mut cpy = data.clone();
+
+        let mut cpy = *data;
         p1.apply_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p1.apply(data));
 
-        cpy = data.clone();
+        cpy = *data;
         p2.apply_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p2.apply(data));
 
-        cpy = data.clone();
+        cpy = *data;
         p3.apply_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p3.apply(data));
 
-        cpy = data.clone();
+        cpy = *data;
         p4.apply_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p4.apply(data));
     }
@@ -437,20 +451,20 @@ mod tests {
         let p2 = Permutation::new(vec![5, 2, 0, 4, 1, 3]);
         let p3 = Permutation::new(vec![5, 0, 4, 2, 3, 1]);
         let p4 = Permutation::new(vec![2, 3, 0, 1, 5, 4]);
-        
-        let mut cpy = data.clone();
+
+        let mut cpy = *data;
         p1.apply_inverse_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p1.apply_inverse(data));
 
-        cpy = data.clone();
+        cpy = *data;
         p2.apply_inverse_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p2.apply_inverse(data));
 
-        cpy = data.clone();
+        cpy = *data;
         p3.apply_inverse_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p3.apply_inverse(data));
 
-        cpy = data.clone();
+        cpy = *data;
         p4.apply_inverse_inplace(&mut cpy);
         assert_eq!(cpy.to_vec(), p4.apply_inverse(data));
     }
