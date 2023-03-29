@@ -24,15 +24,16 @@ impl Decomposition for Tensor {
         let mut jpvt = (1..n as i32 + 1).collect::<Vec<i32>>();
 
         // The scalar factors of the elementary reflectors.
-        let mut tau = vec![Complex64::new(0.0, 0.0); min_dim];
+        let mut tau = Vec::with_capacity(min_dim);
 
         // Set to -1 to query optimal scratch space
         let mut lwork = -1;
+        
         // Complex work scratch space
         let mut work = vec![Complex64::new(0.0, 0.0); 1];
 
         // Double scratch space
-        let mut rwork = vec![0.0; 2 * n as usize];
+        let mut rwork = Vec::with_capacity(2*n as usize);
 
         // Return 0 if successful
         let mut info = 0;
@@ -136,16 +137,12 @@ impl Decomposition for Tensor {
         let mut work = vec![Complex64::new(0.0, 0.0); 1];
 
         // Double scratch space
-        let mut rwork = vec![
-            0.0;
-            max(
-                5 * (min_dim << 2) + 5 * min_dim,
-                2 * (max_dim << 2) + 2 * (min_dim << 2) + min_dim
-            )
-        ];
-
+        let mut rwork = Vec::with_capacity(max(
+            5 * (min_dim << 2) + 5 * min_dim,
+            2 * (max_dim << 2) + 2 * (min_dim << 2) + min_dim
+        ));
         // Integer scratch space
-        let mut iwork = vec![0; 8 * min_dim];
+        let mut iwork = Vec::with_capacity(8 * min_dim);
 
         // Queries for optimal scratch space
         let mut info = 0;
