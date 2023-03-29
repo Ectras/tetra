@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::mem::{self, MaybeUninit};
 use std::ops::Mul;
 use std::{iter::zip, ops::Index};
@@ -139,6 +140,40 @@ impl Permutation {
         unsafe { mem::transmute::<_, Vec<T>>(out) }
     }
 
+    /// Applies the permutation to the array in-place. Uses O(n) extra memory.
+    /// 
+    /// # Panics
+    /// - Panics if the arrays length does not match the length of the permutation
+    /// 
+    /// # Example
+    /// ```
+    /// # use tetra::permutation::Permutation;
+    /// let mut data = [2, 4, 3, 1];
+    /// let perm = Permutation::new(vec![3, 2, 0, 1]);
+    /// perm.apply_inplace(&mut data);
+    /// assert_eq!(data, [3, 1, 4, 2]);
+    /// ```
+    pub fn apply_inplace<T>(&self, array: &mut [T]) {
+        assert_eq!(
+            self.len(),
+            array.len(),
+            "The arrays length must match the length of the permutation"
+        );
+
+        let mut done = HashSet::with_capacity(array.len());
+        for i in 0..array.len() {
+            if done.contains(&i) {
+                continue;
+            }
+            let mut idx = self[i];
+            while idx != i {
+                array.swap(i, idx);
+                done.insert(idx);
+                idx = self[idx];
+            }
+        }
+    }
+
     /// Creates the original version of an permuted array, i.e. `out[i] = in[perm[i]]`.
     ///
     /// # Panics
@@ -163,6 +198,35 @@ impl Permutation {
             "The arrays length must match the length of the permutation"
         );
         (0..array.len()).map(|i| array[self[i]]).collect()
+    }
+
+    /// Applies the inverse permutation to the array in-place, without extra memory
+    /// allocation.
+    /// 
+    /// # Panics
+    /// - Panics if the arrays length does not match the length of the permutation
+    /// 
+    /// # Example
+    /// ```
+    /// # use tetra::permutation::Permutation;
+    /// let mut data = [3, 1, 4, 2];
+    /// let perm = Permutation::new(vec![3, 2, 0, 1]);
+    /// perm.apply_inverse_inplace(&mut data);
+    /// assert_eq!(data, [2, 4, 3, 1]);
+    /// ```
+    pub fn apply_inverse_inplace<T>(&self, array: &mut [T]) {
+        assert_eq!(
+            self.len(),
+            array.len(),
+            "The arrays length must match the length of the permutation"
+        );
+        for i in 0..array.len() {
+            let mut index = self[i];
+            while index < i {
+                index = self[index];
+            }
+            array.swap(i, index);
+        }
     }
 
     /// Creates the inverse permutation. Applying the inverse permutation is the same
@@ -339,5 +403,55 @@ mod tests {
         let p2 = Permutation::new(vec![0, 3, 4, 1, 2, 5]);
         assert_eq!(p1.inverse().inverse(), p1);
         assert_eq!(p2.inverse().inverse(), p2);
+    }
+
+    #[test]
+    fn apply_and_inplace() {
+        let data = &['a', 'b', 'c', 'd', 'e', 'f'];
+        let p1 = Permutation::new(vec![3, 4, 2, 0, 5, 1]);
+        let p2 = Permutation::new(vec![5, 2, 0, 4, 1, 3]);
+        let p3 = Permutation::new(vec![5, 0, 4, 2, 3, 1]);
+        let p4 = Permutation::new(vec![2, 3, 0, 1, 5, 4]);
+        
+        let mut cpy = data.clone();
+        p1.apply_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p1.apply(data));
+
+        cpy = data.clone();
+        p2.apply_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p2.apply(data));
+
+        cpy = data.clone();
+        p3.apply_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p3.apply(data));
+
+        cpy = data.clone();
+        p4.apply_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p4.apply(data));
+    }
+
+    #[test]
+    fn apply_inverse_and_inplace() {
+        let data = &['a', 'b', 'c', 'd', 'e', 'f'];
+        let p1 = Permutation::new(vec![3, 4, 2, 0, 5, 1]);
+        let p2 = Permutation::new(vec![5, 2, 0, 4, 1, 3]);
+        let p3 = Permutation::new(vec![5, 0, 4, 2, 3, 1]);
+        let p4 = Permutation::new(vec![2, 3, 0, 1, 5, 4]);
+        
+        let mut cpy = data.clone();
+        p1.apply_inverse_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p1.apply_inverse(data));
+
+        cpy = data.clone();
+        p2.apply_inverse_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p2.apply_inverse(data));
+
+        cpy = data.clone();
+        p3.apply_inverse_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p3.apply_inverse(data));
+
+        cpy = data.clone();
+        p4.apply_inverse_inplace(&mut cpy);
+        assert_eq!(cpy.to_vec(), p4.apply_inverse(data));
     }
 }
