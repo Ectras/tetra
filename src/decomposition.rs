@@ -60,10 +60,10 @@ impl Decomposition for Tensor {
 
         unsafe {
             zgeqp3(
-                m,
-                n,
+                m.try_into().unwrap(),
+                n.try_into().unwrap(),
                 &mut self.data,
-                lda,
+                lda.try_into().unwrap(),
                 &mut jpvt,
                 &mut tau,
                 &mut work,
