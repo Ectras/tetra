@@ -40,6 +40,9 @@ before_script:
   # Put cargo in $PATH
   - source "$HOME/.cargo/env"
 
+  # Install packages for building dependencies
+  - apt-get install -qq build-essential clang cmake gfortran libopenblas-dev libssl-dev pkg-config
+
 image: ubuntu:latest
 
 default:
@@ -49,9 +52,6 @@ default:
 build:
   stage: build
   script:
-    # Install packages for building dependencies
-    - apt-get install -qq build-essential clang cmake gfortran libopenblas-dev libssl-dev pkg-config
-
     # Report on the used Rust version
     - rustc --version
 
@@ -74,3 +74,11 @@ test:
     when: always
     reports:
       junit: $CI_PROJECT_DIR/tests/*.xml
+
+clippy:
+  stage: test
+  dependencies:
+    - build
+  script:
+    - RUSTFLAGS="-Dwarnings" cargo clippy --workspace --all-features --all-targets -- -W clippy::cargo -W clippy::pedantic -W clippy::nursery
+  allow_failure: true
