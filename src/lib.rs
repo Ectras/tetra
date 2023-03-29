@@ -8,6 +8,8 @@ use permutation::Permutation;
 
 pub mod permutation;
 
+pub mod decomposition;
+
 /// A tensor of arbitrary dimensions containing complex64 values.
 #[derive(Clone, Debug)]
 pub struct Tensor {
@@ -152,6 +154,18 @@ impl Tensor {
         } else {
             self.data.len().try_into().unwrap()
         }
+    }
+
+    /// Returns the number of dimensions / axes of the tensor.
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// assert_eq!(Tensor::new(&[1, 2]).ndim(), 2);
+    /// assert_eq!(Tensor::new(&[1, 3, 6, 5]).ndim(), 4);
+    /// ```
+    pub fn ndim(&self) -> usize {
+        self.shape.len()
     }
 
     /// Transposes the tensor axes according to the permutation.
