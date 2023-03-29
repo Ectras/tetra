@@ -40,7 +40,7 @@ before_script:
   # Put cargo in $PATH
   - source "$HOME/.cargo/env"
 
-image: "ubuntu:20.04"
+image: ubuntu:latest
 
 default:
   tags:
