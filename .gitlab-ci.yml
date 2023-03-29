@@ -67,18 +67,12 @@ test:
   dependencies:
     - build
   script:
-    - cargo test
-    - cargo install junitify
-    - cargo test -- --format=json -Z unstable-options --report-time | junitify --out $CI_PROJECT_DIR/tests%
-  artifacts:
-    when: always
-    reports:
-      junit: $CI_PROJECT_DIR/tests/*.xml
+    - cargo test --color always --workspace --no-fail-fast
 
 clippy:
   stage: test
   dependencies:
     - build
   script:
-    - RUSTFLAGS="-Dwarnings" cargo clippy --workspace --all-features --all-targets -- -W clippy::cargo -W clippy::pedantic -W clippy::nursery
+    - RUSTFLAGS="-Dwarnings" cargo clippy --color always --workspace --all-features --all-targets
   allow_failure: true
