@@ -82,6 +82,7 @@ build:
   artifacts:
     paths:
       - target/debug
+    expire_in: 1 hour
 
 build:docs:
   stage: build
@@ -91,6 +92,7 @@ build:docs:
   artifacts:
     paths:
       - target/doc
+    expire_in: 1 day
 
 test:
   stage: test
@@ -104,8 +106,7 @@ pages:
   stage: deploy
   image: alpine:latest
   needs:
-    - job: test
-      artifacts: false
+    - test
     - build:docs
   dependencies:
     - test
