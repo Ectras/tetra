@@ -4,8 +4,10 @@ extern crate openblas_src;
 pub use cblas::Layout;
 use cblas::{zgemm, Transpose};
 use hptt_sys::transpose_simple;
+use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
+use std::iter::zip;
 
 pub mod permutation;
 
@@ -258,20 +260,43 @@ pub fn contract(
         .copied()
         .collect::<HashSet<_>>();
 
-    let mut remaining =
-        Vec::with_capacity(a_indices.len() + b_indices.len() - 2 * contracted.len());
+    // Find hyperedges
+    let hyperedges = contracted
+        .iter()
+        .filter(|idx| out_indices.contains(idx))
+        .copied()
+        .collect::<HashSet<_>>();
+
+    let mut remaining = Vec::with_capacity(
+        a_indices.len() + b_indices.len() - 2 * contracted.len() + hyperedges.len(),
+    );
+
+    // Keeps track of order of contracted edges
+    // let mut contract_order = vec![0; contracted.len() - hyperedges.len()];
+    let mut contract_order = Vec::with_capacity(contracted.len() - hyperedges.len());
+
+    // keeps track of order of hyperedges
+    let mut hyperedge_order = Vec::with_capacity(hyperedges.len());
+    let mut hyperedge_size = Vec::with_capacity(hyperedges.len());
 
     // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for A
     let mut a_contracted = 0;
     let mut a_remaining = 0;
+    let mut a_hyperedges = 0;
     let mut a_contracted_size = 1;
     let mut a_remaining_size = 1;
     let mut a_perm = vec![0; a_indices.len()];
-    let mut contract_order = vec![0; contracted.len()];
+
     for (i, idx) in a_indices.iter().enumerate() {
-        if contracted.contains(idx) {
+        if hyperedges.contains(idx) {
+            a_perm[a_indices.len() - hyperedges.len() + a_hyperedges] = i;
+            a_hyperedges += 1;
+            hyperedge_order.push(*idx);
+            hyperedge_size.push(a.size(Some(i)));
+        } else if contracted.contains(idx) {
             a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i;
-            contract_order[a_contracted] = *idx;
+            contract_order.push(*idx);
+            // contract_order[a_contracted] = *idx;
             a_contracted_size *= a.size(Some(i));
             a_contracted += 1;
         } else {
@@ -291,7 +316,10 @@ pub fn contract(
     let mut b_remaining_size = 1;
     let mut b_perm = vec![0; b_indices.len()];
     for (i, idx) in b_indices.iter().enumerate() {
-        if contracted.contains(idx) {
+        if hyperedges.contains(idx) {
+            b_perm[hyperedge_order.iter().position(|e| *e == *idx).unwrap() + b_indices.len()
+                - hyperedges.len()] = i;
+        } else if contracted.contains(idx) {
             b_perm[contract_order.iter().position(|e| *e == *idx).unwrap()] = i;
             b_contracted_size *= b.size(Some(i));
         } else {
@@ -309,7 +337,8 @@ pub fn contract(
     assert_eq!(a_contracted_size, b_contracted_size);
 
     // Compute the shape of C based on the remaining indices
-    let mut c_shape = Vec::with_capacity(remaining.len());
+    // Compute the shape of C based on the remaining indices
+    let mut c_shape = Vec::with_capacity(remaining.len() + hyperedges.len());
     for r in &remaining {
         let mut found = false;
         for (i, s) in a_indices.iter().enumerate() {
@@ -330,34 +359,57 @@ pub fn contract(
         }
     }
 
+    // Determine chunk size when performing hyperedge contraction
+    let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
+    let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
+    let c_chunk_size = c_shape.iter().product::<u32>() as usize;
+
+    for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedges) {
+        c_shape.push(*hyperedge_size);
+        remaining.push(*hyperedge_index);
+    }
     // Create output tensor
-    let mut out = Tensor::new_uninitialized(&c_shape);
+    let mut out = Tensor::new(&c_shape);
 
-    // Compute ZGEMM
-    unsafe {
-        zgemm(
-            Layout::ColumnMajor,
-            Transpose::None,
-            Transpose::None,
-            a_remaining_size.try_into().unwrap(),
-            b_remaining_size.try_into().unwrap(),
-            b_contracted_size.try_into().unwrap(),
-            Complex64::new(1.0, 0.0),
-            &a_transposed.data,
-            a_remaining_size.try_into().unwrap(),
-            &b_transposed.data,
-            b_contracted_size.try_into().unwrap(),
-            Complex64::new(0.0, 0.0),
-            &mut out.data,
-            a_remaining_size.try_into().unwrap(),
-        );
+    let hyperedge_iter = if hyperedge_size.is_empty() {
+        [0..1].into_iter().multi_cartesian_product()
+    } else {
+        hyperedge_size
+            .clone()
+            .iter()
+            .map(|&e| 0..e)
+            .multi_cartesian_product()
+    };
+
+    for dim in hyperedge_iter {
+        let mut index: usize = 0;
+        for (i, size) in zip(dim, &hyperedge_size) {
+            index = (index + i as usize) * (*size) as usize;
+        }
+        if !hyperedge_size.is_empty() {
+            index /= hyperedge_size[hyperedge_size.len() - 1] as usize;
+        }
+
+        // Compute ZGEMM
+        unsafe {
+            zgemm(
+                Layout::ColumnMajor,
+                Transpose::None,
+                Transpose::None,
+                a_remaining_size.try_into().unwrap(),
+                b_remaining_size.try_into().unwrap(),
+                b_contracted_size.try_into().unwrap(),
+                Complex64::new(1.0, 0.0),
+                &a_transposed.data[index * a_chunk_size..(index + 1) * a_chunk_size],
+                a_remaining_size.try_into().unwrap(),
+                &b_transposed.data[index * b_chunk_size..(index + 1) * b_chunk_size],
+                b_contracted_size.try_into().unwrap(),
+                Complex64::new(0.0, 0.0),
+                &mut out.data[index * c_chunk_size..(index + 1) * c_chunk_size],
+                a_remaining_size.try_into().unwrap(),
+            );
+        }
     }
-
-    // Update the data length to the written length
-    unsafe {
-        out.data.set_len(out.data.capacity());
-    }
-
     // Find permutation for output tensor
     let c_perm = Permutation::between(&remaining, out_indices);
 
