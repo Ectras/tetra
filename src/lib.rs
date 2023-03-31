@@ -49,22 +49,33 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor with the given dimensions and the corresponding data.
+    /// Creates a new tensor with the given dimensions and the corresponding data. Assumes data is
+    /// column major unless otherwise specified.
     ///
     /// # Panics
     /// - Panics if the dimensions are empty
     /// - Panics if the length of the data does not match with the dimensions given
     #[must_use]
-    pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>) -> Self {
+    pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
         // Validity checks
         assert!(!dimensions.is_empty());
         let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
         assert_eq!(total_items, data.len());
 
+        let inv_permutation = if let Some(layout) = layout {
+            if layout == Layout::RowMajor {
+                Permutation::new((0..dimensions.len()).rev().collect())
+            }else{
+                Permutation::identity(dimensions.len())
+            }
+        } else {
+            Permutation::identity(dimensions.len())
+        };
+
         // Construct tensor
         Self {
             shape: dimensions.to_vec(),
-            inv_permutation: Permutation::identity(dimensions.len()),
+            inv_permutation,
             data,
         }
     }
@@ -218,7 +229,7 @@ impl Tensor {
         let perm = &self.inv_permutation * inv_permutation;
         let data = self.compute_transposed_data(&perm);
         let shape = perm.apply_inverse(&self.shape);
-        Self::new_from_flat(&shape, data)
+        Self::new_from_flat(&shape, data, None)
     }
 }
 
@@ -496,9 +507,9 @@ mod tests {
             Complex64::new(-0.8540957393017248, -0.7421650204064419),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[2], solution_data);
-        let b = Tensor::new_from_flat(&[2, 2, 2], b_data);
-        let c = Tensor::new_from_flat(&[2, 2], c_data);
+        let mut solution = Tensor::new_from_flat(&[2], solution_data, None);
+        let b = Tensor::new_from_flat(&[2, 2, 2], b_data, None);
+        let c = Tensor::new_from_flat(&[2, 2], c_data, None);
 
         // Contract the tensors
         let mut out = contract(&[2], &[1, 0, 2], &b, &[0, 1], &c);
@@ -756,10 +767,10 @@ mod tests {
             Complex64::new(1.1605590114481037, -1.8451851363285414),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[4], solution_data);
-        let b = Tensor::new_from_flat(&[1, 2, 3, 4], b_data);
-        let c = Tensor::new_from_flat(&[6, 3, 5, 2], c_data);
-        let d = Tensor::new_from_flat(&[6, 5, 1], d_data);
+        let mut solution = Tensor::new_from_flat(&[4], solution_data, None);
+        let b = Tensor::new_from_flat(&[1, 2, 3, 4], b_data, None);
+        let c = Tensor::new_from_flat(&[6, 3, 5, 2], c_data, None);
+        let d = Tensor::new_from_flat(&[6, 5, 1], d_data, None);
 
         // Contract the tensors
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], &b, &[5, 2, 4, 1], &c);
