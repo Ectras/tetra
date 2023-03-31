@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 extern crate openblas_src;
-use cblas::{zgemm, Layout, Transpose};
+pub use cblas::Layout;
+use cblas::{zgemm, Transpose};
 use hptt_sys::transpose_simple;
 use num_complex::Complex64;
 use permutation::Permutation;
