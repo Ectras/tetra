@@ -65,7 +65,7 @@ impl Tensor {
         let inv_permutation = if let Some(layout) = layout {
             if layout == Layout::RowMajor {
                 Permutation::new((0..dimensions.len()).rev().collect())
-            }else{
+            } else {
                 Permutation::identity(dimensions.len())
             }
         } else {
