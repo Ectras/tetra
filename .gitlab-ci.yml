@@ -7,6 +7,11 @@ stages:
 
 .rust-default:
   image: $CI_REGISTRY_IMAGE:latest
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/cargo
+  cache:
+    - key: cargo
+      paths: [ cargo/ ]
   before_script:
     ##
     ## Run ssh-agent (inside the build environment)
