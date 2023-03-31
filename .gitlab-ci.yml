@@ -41,7 +41,6 @@ docker:build:
   services:
     - name: docker:20-dind
       command: ["--tls=false"]
-
   variables:
     DOCKER_HOST: tcp://docker:2375/
     DOCKER_DRIVER: overlay2
@@ -51,6 +50,9 @@ docker:build:
   script:
     - docker build -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:latest
+  rules:
+    - changes:
+        - Dockerfile
 
 check:clippy:
   stage: check
