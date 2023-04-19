@@ -14,10 +14,10 @@ repository = "https://gitlab.lrz.de/quantum-research/tetra"
 [dependencies]
 num-complex = "0.4"
 openblas-src = { version = "0.10", features = ["system"] }
-cblas = "0.4"
 hptt-sys = { git = "ssh://gitlab.lrz.de/quantum-research/hptt-sys.git" }
 lapack = "0.19"
 itertools = "0.10.5"
+cblas-sys = "0.1.4"
 
 [dev-dependencies]
 criterion = "0.3"

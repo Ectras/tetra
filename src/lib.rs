@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 
 extern crate openblas_src;
-pub use cblas::Layout;
-use cblas::{zgemm, Transpose};
+use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt_sys::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
@@ -12,6 +11,12 @@ use std::iter::zip;
 pub mod permutation;
 
 pub mod decomposition;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Layout {
+    RowMajor,
+    ColumnMajor,
+}
 
 /// A tensor of arbitrary dimensions containing complex64 values.
 #[derive(Clone, Debug)]
@@ -366,7 +371,7 @@ pub fn contract(
         remaining.push(*hyperedge_index);
     }
     // Create output tensor
-    let mut out = Tensor::new(&c_shape);
+    let mut out = Tensor::new_uninitialized(&c_shape);
 
     let hyperedge_iter = if hyperedge_size.is_empty() {
         [0..1].into_iter().multi_cartesian_product()
@@ -389,24 +394,43 @@ pub fn contract(
 
         // Compute ZGEMM
         unsafe {
-            zgemm(
-                Layout::ColumnMajor,
-                Transpose::None,
-                Transpose::None,
+            let out_start = out.data.as_mut_ptr();
+            let out_chunck_start = out_start.add(index * c_chunk_size);
+
+            // Make sure that we are not writing past the allocated memory
+            let out_chunck_end = out_chunck_start.add(c_chunk_size);
+            assert!(
+                usize::try_from(out_chunck_end.offset_from(out_start)).unwrap()
+                    <= out.data.capacity()
+            );
+
+            // Perform matrix-matrix multiplication
+            cblas_zgemm(
+                CBLAS_LAYOUT::CblasColMajor,
+                CBLAS_TRANSPOSE::CblasNoTrans,
+                CBLAS_TRANSPOSE::CblasNoTrans,
                 a_remaining_size.try_into().unwrap(),
                 b_remaining_size.try_into().unwrap(),
                 b_contracted_size.try_into().unwrap(),
-                Complex64::new(1.0, 0.0),
-                &a_transposed.data[index * a_chunk_size..(index + 1) * a_chunk_size],
+                &Complex64::new(1.0, 0.0) as *const _ as *const _,
+                a_transposed.data[index * a_chunk_size..(index + 1) * a_chunk_size].as_ptr()
+                    as *const _,
                 a_remaining_size.try_into().unwrap(),
-                &b_transposed.data[index * b_chunk_size..(index + 1) * b_chunk_size],
+                b_transposed.data[index * b_chunk_size..(index + 1) * b_chunk_size].as_ptr()
+                    as *const _,
                 b_contracted_size.try_into().unwrap(),
-                Complex64::new(0.0, 0.0),
-                &mut out.data[index * c_chunk_size..(index + 1) * c_chunk_size],
+                &Complex64::new(0.0, 0.0) as *const _ as *const _,
+                out_chunck_start as *mut _,
                 a_remaining_size.try_into().unwrap(),
             );
         }
     }
+
+    // Update length as full vector is now initialized
+    unsafe {
+        out.data.set_len(out.data.capacity());
+    }
+
     // Find permutation for output tensor
     let c_perm = Permutation::between(&remaining, out_indices);
 
