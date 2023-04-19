@@ -272,10 +272,9 @@ pub fn contract(
     );
 
     // Keeps track of order of contracted edges
-    // let mut contract_order = vec![0; contracted.len() - hyperedges.len()];
     let mut contract_order = Vec::with_capacity(contracted.len() - hyperedges.len());
 
-    // keeps track of order of hyperedges
+    // Keeps track of order of hyperedges
     let mut hyperedge_order = Vec::with_capacity(hyperedges.len());
     let mut hyperedge_size = Vec::with_capacity(hyperedges.len());
 
@@ -296,7 +295,6 @@ pub fn contract(
         } else if contracted.contains(idx) {
             a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i;
             contract_order.push(*idx);
-            // contract_order[a_contracted] = *idx;
             a_contracted_size *= a.size(Some(i));
             a_contracted += 1;
         } else {
@@ -336,7 +334,6 @@ pub fn contract(
     // Make sure the connecting matrix dimensions match
     assert_eq!(a_contracted_size, b_contracted_size);
 
-    // Compute the shape of C based on the remaining indices
     // Compute the shape of C based on the remaining indices
     let mut c_shape = Vec::with_capacity(remaining.len() + hyperedges.len());
     for r in &remaining {
@@ -622,7 +619,6 @@ mod tests {
 
     #[test]
     fn contraction_three_hyperedges_only() {
-
         let b_data = vec![
             Complex64::new(0.0525795517940905, 0.5940587423078663),
             Complex64::new(0.7525040444615576, 0.8038480520516861),
@@ -672,7 +668,8 @@ mod tests {
             Complex64::new(-0.1232274436570458, 0.4681960350487574),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[2, 2, 2, 2], solution_data, Some(Layout::RowMajor));
+        let mut solution =
+            Tensor::new_from_flat(&[2, 2, 2, 2], solution_data, Some(Layout::RowMajor));
         let b = Tensor::new_from_flat(&[2, 2, 2, 2], b_data, Some(Layout::RowMajor));
         let c = Tensor::new_from_flat(&[2, 2, 2], c_data, Some(Layout::RowMajor));
 
