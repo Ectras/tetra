@@ -395,12 +395,12 @@ pub fn contract(
         // Compute ZGEMM
         unsafe {
             let out_start = out.data.as_mut_ptr();
-            let out_chunck_start = out_start.add(index * c_chunk_size);
+            let out_chunk_start = out_start.add(index * c_chunk_size);
 
             // Make sure that we are not writing past the allocated memory
-            let out_chunck_end = out_chunck_start.add(c_chunk_size);
+            let out_chunk_end = out_chunk_start.add(c_chunk_size);
             assert!(
-                usize::try_from(out_chunck_end.offset_from(out_start)).unwrap()
+                usize::try_from(out_chunk_end.offset_from(out_start)).unwrap()
                     <= out.data.capacity()
             );
 
@@ -420,7 +420,7 @@ pub fn contract(
                     as *const _,
                 b_contracted_size.try_into().unwrap(),
                 &Complex64::new(0.0, 0.0) as *const _ as *const _,
-                out_chunck_start as *mut _,
+                out_chunk_start as *mut _,
                 a_remaining_size.try_into().unwrap(),
             );
         }
