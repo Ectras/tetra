@@ -138,8 +138,8 @@ impl Decomposition for Tensor {
 
         // Double scratch space
         let mut rwork = Vec::with_capacity(max(
-            5 * (min_dim << 2) + 5 * min_dim,
-            2 * (max_dim << 2) + 2 * (min_dim << 2) + min_dim,
+            5 * min_dim * min_dim + 5 * min_dim,
+            2 * min_dim * max_dim + 2 * min_dim * min_dim + min_dim,
         ));
         // Integer scratch space
         let mut iwork = Vec::with_capacity(8 * min_dim);
