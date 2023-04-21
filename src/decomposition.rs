@@ -123,7 +123,7 @@ impl Decomposition for Tensor {
         // Leading dimension of `vt_tensor`
         let ldvt = min_dim as u32;
         // Using double vector as stand in until other Tensor types defined
-        let mut s = vec![0.0; min_dim];
+        let mut s = Vec::with_capacity(min_dim);
 
         // TODO: Add different Tensor types that allow for diagonal tensors
         let mut u_tensor = Self::new(&[m, ldvt]);
@@ -190,6 +190,7 @@ impl Decomposition for Tensor {
                 &mut iwork,
                 &mut info,
             );
+            s.set_len(s.capacity());
         }
         // Fill in s_tensor
         for i in 0..ldvt {
