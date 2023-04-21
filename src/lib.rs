@@ -1,14 +1,22 @@
 use std::collections::HashSet;
 
 extern crate openblas_src;
-use cblas::{zgemm, Layout, Transpose};
+use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt_sys::transpose_simple;
+use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
+use std::iter::zip;
 
 pub mod permutation;
 
 pub mod decomposition;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Layout {
+    RowMajor,
+    ColumnMajor,
+}
 
 /// A tensor of arbitrary dimensions containing complex64 values.
 #[derive(Clone, Debug)]
@@ -48,22 +56,33 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor with the given dimensions and the corresponding data.
+    /// Creates a new tensor with the given dimensions and the corresponding data. Assumes data is
+    /// column major unless otherwise specified.
     ///
     /// # Panics
     /// - Panics if the dimensions are empty
     /// - Panics if the length of the data does not match with the dimensions given
     #[must_use]
-    pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>) -> Self {
+    pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
         // Validity checks
         assert!(!dimensions.is_empty());
         let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
         assert_eq!(total_items, data.len());
 
+        let inv_permutation = if let Some(layout) = layout {
+            if layout == Layout::RowMajor {
+                Permutation::new((0..dimensions.len()).rev().collect())
+            } else {
+                Permutation::identity(dimensions.len())
+            }
+        } else {
+            Permutation::identity(dimensions.len())
+        };
+
         // Construct tensor
         Self {
             shape: dimensions.to_vec(),
-            inv_permutation: Permutation::identity(dimensions.len()),
+            inv_permutation,
             data,
         }
     }
@@ -217,7 +236,7 @@ impl Tensor {
         let perm = &self.inv_permutation * inv_permutation;
         let data = self.compute_transposed_data(&perm);
         let shape = perm.apply_inverse(&self.shape);
-        Self::new_from_flat(&shape, data)
+        Self::new_from_flat(&shape, data, None)
     }
 }
 
@@ -246,20 +265,41 @@ pub fn contract(
         .copied()
         .collect::<HashSet<_>>();
 
-    let mut remaining =
-        Vec::with_capacity(a_indices.len() + b_indices.len() - 2 * contracted.len());
+    // Find hyperedges
+    let hyperedges = contracted
+        .iter()
+        .filter(|idx| out_indices.contains(idx))
+        .copied()
+        .collect::<HashSet<_>>();
+
+    let mut remaining = Vec::with_capacity(
+        a_indices.len() + b_indices.len() - 2 * contracted.len() + hyperedges.len(),
+    );
+
+    // Keeps track of order of contracted edges
+    let mut contract_order = Vec::with_capacity(contracted.len() - hyperedges.len());
+
+    // Keeps track of order of hyperedges
+    let mut hyperedge_order = Vec::with_capacity(hyperedges.len());
+    let mut hyperedge_size = Vec::with_capacity(hyperedges.len());
 
     // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for A
     let mut a_contracted = 0;
     let mut a_remaining = 0;
+    let mut a_hyperedges = 0;
     let mut a_contracted_size = 1;
     let mut a_remaining_size = 1;
     let mut a_perm = vec![0; a_indices.len()];
-    let mut contract_order = vec![0; contracted.len()];
+
     for (i, idx) in a_indices.iter().enumerate() {
-        if contracted.contains(idx) {
+        if hyperedges.contains(idx) {
+            a_perm[a_indices.len() - hyperedges.len() + a_hyperedges] = i;
+            a_hyperedges += 1;
+            hyperedge_order.push(*idx);
+            hyperedge_size.push(a.size(Some(i)));
+        } else if contracted.contains(idx) {
             a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i;
-            contract_order[a_contracted] = *idx;
+            contract_order.push(*idx);
             a_contracted_size *= a.size(Some(i));
             a_contracted += 1;
         } else {
@@ -279,7 +319,10 @@ pub fn contract(
     let mut b_remaining_size = 1;
     let mut b_perm = vec![0; b_indices.len()];
     for (i, idx) in b_indices.iter().enumerate() {
-        if contracted.contains(idx) {
+        if hyperedges.contains(idx) {
+            b_perm[hyperedge_order.iter().position(|e| *e == *idx).unwrap() + b_indices.len()
+                - hyperedges.len()] = i;
+        } else if contracted.contains(idx) {
             b_perm[contract_order.iter().position(|e| *e == *idx).unwrap()] = i;
             b_contracted_size *= b.size(Some(i));
         } else {
@@ -297,7 +340,7 @@ pub fn contract(
     assert_eq!(a_contracted_size, b_contracted_size);
 
     // Compute the shape of C based on the remaining indices
-    let mut c_shape = Vec::with_capacity(remaining.len());
+    let mut c_shape = Vec::with_capacity(remaining.len() + hyperedges.len());
     for r in &remaining {
         let mut found = false;
         for (i, s) in a_indices.iter().enumerate() {
@@ -318,30 +361,72 @@ pub fn contract(
         }
     }
 
+    // Determine chunk size when performing hyperedge contraction
+    let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
+    let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
+    let c_chunk_size = c_shape.iter().product::<u32>() as usize;
+
+    for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedge_order) {
+        c_shape.push(*hyperedge_size);
+        remaining.push(*hyperedge_index);
+    }
     // Create output tensor
     let mut out = Tensor::new_uninitialized(&c_shape);
 
-    // Compute ZGEMM
-    unsafe {
-        zgemm(
-            Layout::ColumnMajor,
-            Transpose::None,
-            Transpose::None,
-            a_remaining_size.try_into().unwrap(),
-            b_remaining_size.try_into().unwrap(),
-            b_contracted_size.try_into().unwrap(),
-            Complex64::new(1.0, 0.0),
-            &a_transposed.data,
-            a_remaining_size.try_into().unwrap(),
-            &b_transposed.data,
-            b_contracted_size.try_into().unwrap(),
-            Complex64::new(0.0, 0.0),
-            &mut out.data,
-            a_remaining_size.try_into().unwrap(),
-        );
+    let hyperedge_iter = if hyperedge_size.is_empty() {
+        [0..1].into_iter().multi_cartesian_product()
+    } else {
+        hyperedge_size
+            .clone()
+            .iter()
+            .map(|&e| 0..e)
+            .multi_cartesian_product()
+    };
+
+    for dim in hyperedge_iter {
+        let mut index: usize = 0;
+        for (i, size) in zip(dim, &hyperedge_size) {
+            index = (index + i as usize) * (*size) as usize;
+        }
+        if !hyperedge_size.is_empty() {
+            index /= hyperedge_size[hyperedge_size.len() - 1] as usize;
+        }
+
+        // Compute ZGEMM
+        unsafe {
+            let out_start = out.data.as_mut_ptr();
+            let out_chunk_start = out_start.add(index * c_chunk_size);
+
+            // Make sure that we are not writing past the allocated memory
+            let out_chunk_end = out_chunk_start.add(c_chunk_size);
+            assert!(
+                usize::try_from(out_chunk_end.offset_from(out_start)).unwrap()
+                    <= out.data.capacity()
+            );
+
+            // Perform matrix-matrix multiplication
+            cblas_zgemm(
+                CBLAS_LAYOUT::CblasColMajor,
+                CBLAS_TRANSPOSE::CblasNoTrans,
+                CBLAS_TRANSPOSE::CblasNoTrans,
+                a_remaining_size.try_into().unwrap(),
+                b_remaining_size.try_into().unwrap(),
+                b_contracted_size.try_into().unwrap(),
+                &Complex64::new(1.0, 0.0) as *const _ as *const _,
+                a_transposed.data[index * a_chunk_size..(index + 1) * a_chunk_size].as_ptr()
+                    as *const _,
+                a_remaining_size.try_into().unwrap(),
+                b_transposed.data[index * b_chunk_size..(index + 1) * b_chunk_size].as_ptr()
+                    as *const _,
+                b_contracted_size.try_into().unwrap(),
+                &Complex64::new(0.0, 0.0) as *const _ as *const _,
+                out_chunk_start as *mut _,
+                a_remaining_size.try_into().unwrap(),
+            );
+        }
     }
 
-    // Update the data length to the written length
+    // Update length as full vector is now initialized
     unsafe {
         out.data.set_len(out.data.capacity());
     }
@@ -495,13 +580,124 @@ mod tests {
             Complex64::new(-0.8540957393017248, -0.7421650204064419),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[2], solution_data);
-        let b = Tensor::new_from_flat(&[2, 2, 2], b_data);
-        let c = Tensor::new_from_flat(&[2, 2], c_data);
+        let mut solution = Tensor::new_from_flat(&[2], solution_data, None);
+        let b = Tensor::new_from_flat(&[2, 2, 2], b_data, None);
+        let c = Tensor::new_from_flat(&[2, 2], c_data, None);
 
         // Contract the tensors
         let mut out = contract(&[2], &[1, 0, 2], &b, &[0, 1], &c);
 
+        assert_tensors_equal(&mut out, &mut solution);
+    }
+
+    #[test]
+    fn contraction_one_hyperedge_one_normal() {
+        let b_data = vec![
+            Complex64::new(0.44122748688504143, -0.9092324048562419),
+            Complex64::new(2.43077118700778, 0.18760322583703548),
+            Complex64::new(0.10960984157818278, -1.192764612421806),
+            Complex64::new(-0.33087015189408764, -0.5916366579302884),
+            Complex64::new(-0.2520921296030769, -0.32986995777935924),
+            Complex64::new(1.5824811170615634, -0.2048765105875873),
+        ];
+        let c_data = vec![
+            Complex64::new(-0.3588289470012431, 0.7930533194619698),
+            Complex64::new(-1.5111795576883658, 0.19766009104249851),
+            Complex64::new(0.996439826913362, 0.1007381887528521),
+            Complex64::new(-0.7001790376899514, -0.10106761180924467),
+            Complex64::new(-0.8568531547160899, 1.5615322934488904),
+            Complex64::new(-0.3633108784819174, 1.2919633833879631),
+            Complex64::new(0.6034716026094954, -0.6315716297922155),
+            Complex64::new(0.6448475108927784, 1.3348485742415819),
+            Complex64::new(0.7124212708765678, 0.3554384723493521),
+            Complex64::new(1.1513910094871702, -0.05230815085185874),
+            Complex64::new(-0.8718791832556535, -0.3058530211666308),
+            Complex64::new(0.0032888429341100755, 1.1393429788252842),
+            Complex64::new(-1.6647885294716944, -0.0061949084857593475),
+            Complex64::new(-0.9806078852186219, -0.08687560627763552),
+            Complex64::new(0.059144243219039896, 0.269612406446701),
+            Complex64::new(1.8573310072313118, 0.24921765856490757),
+            Complex64::new(-0.4225079291623943, -0.47773141727821256),
+            Complex64::new(-0.10593044205742323, 0.49444039812108825),
+        ];
+        let solution_data = vec![
+            Complex64::new(0.734617622804381, 1.1238676714086437),
+            Complex64::new(1.2778747597962676, -1.7886157314230977),
+            Complex64::new(2.8003838167444983, 1.998880565131441),
+            Complex64::new(0.7203118822499492, 1.4515077983070295),
+            Complex64::new(1.4359570078447461, 3.7303968153219964),
+            Complex64::new(-0.9775931892780798, 0.4906729660620053),
+            Complex64::new(1.4158326901458151, -1.0740710092306176),
+            Complex64::new(2.0400576231610157, 0.7093378375520341),
+            Complex64::new(0.2617332277917399, 0.7631522656907458),
+        ];
+
+        let mut solution = Tensor::new_from_flat(&[3, 3, 1], solution_data, None);
+        let b = Tensor::new_from_flat(&[1, 3, 2, 1], b_data, None);
+        let c = Tensor::new_from_flat(&[3, 2, 1, 3], c_data, None);
+
+        let mut out = contract(&[1, 4, 0], &[0, 1, 2, 3], &b, &[4, 2, 3, 1], &c);
+
+        assert_tensors_equal(&mut out, &mut solution);
+    }
+
+    #[test]
+    fn contraction_three_hyperedges_only() {
+        let b_data = vec![
+            Complex64::new(0.0525795517940905, 0.5940587423078663),
+            Complex64::new(0.7525040444615576, 0.8038480520516861),
+            Complex64::new(0.1128332539895021, 0.4446153013757889),
+            Complex64::new(0.0785807572180043, 0.9935954700500143),
+            Complex64::new(0.8185816938998588, 0.96707376127355),
+            Complex64::new(0.9472854477212035, 0.3758739972788238),
+            Complex64::new(0.9777265602588574, 0.4480678490565591),
+            Complex64::new(0.5623477769917304, 0.9065030582228698),
+            Complex64::new(0.7653505709096636, 0.504100201624668),
+            Complex64::new(0.1532635445497977, 0.8871822684786365),
+            Complex64::new(0.2734451624358636, 0.2314999123816396),
+            Complex64::new(0.110870616468761, 0.7427655071692136),
+            Complex64::new(0.1222575838728678, 0.4014008258759437),
+            Complex64::new(0.1930475575523624, 0.7990057760304885),
+            Complex64::new(0.8725944878654819, 0.2241634833297647),
+            Complex64::new(0.2154670526575549, 0.8110019216680409),
+        ];
+
+        let c_data = vec![
+            Complex64::new(0.8445169236441942, 0.3025958478792655),
+            Complex64::new(0.1329375757528354, 0.696460648419754),
+            Complex64::new(0.520511455016131, 0.5238746346974953),
+            Complex64::new(0.8246339363179194, 0.8959130730289593),
+            Complex64::new(0.5946174680932, 0.8125272231801355),
+            Complex64::new(0.4113544242326473, 0.7506886864236262),
+            Complex64::new(0.6973939119766687, 0.0727243012099578),
+            Complex64::new(0.5015356755349253, 0.2851927366478476),
+        ];
+
+        let solution_data = vec![
+            Complex64::new(-0.1353553874910031, 0.5176030155740229),
+            Complex64::new(-0.1741916773808778, 0.2905378371570276),
+            Complex64::new(-0.2056963759446933, 1.089412115120795),
+            Complex64::new(-0.017456794562414, 0.698642162437705),
+            Complex64::new(-0.5647085529036102, 0.6986703787159183),
+            Complex64::new(0.4048366584551033, 1.2454499612885606),
+            Complex64::new(0.1075057026532834, 0.8657339001527011),
+            Complex64::new(0.0235093842648876, 0.6150211251483878),
+            Complex64::new(0.4938128817272317, 0.6573130564137721),
+            Complex64::new(0.02105440733518, 0.2637493408107594),
+            Complex64::new(-0.6297265642504097, 0.6520648764877406),
+            Complex64::new(0.0233033904706731, 0.5260631308334801),
+            Complex64::new(-0.2633072526483266, 0.1385088488354639),
+            Complex64::new(0.5187400321269859, 0.9666216247686549),
+            Complex64::new(-0.5203936295667466, 0.4735931783538535),
+            Complex64::new(-0.1232274436570458, 0.4681960350487574),
+        ];
+
+        let mut solution =
+            Tensor::new_from_flat(&[2, 2, 2, 2], solution_data, Some(Layout::RowMajor));
+        let b = Tensor::new_from_flat(&[2, 2, 2, 2], b_data, Some(Layout::RowMajor));
+        let c = Tensor::new_from_flat(&[2, 2, 2], c_data, Some(Layout::RowMajor));
+
+        let mut out = contract(&[1, 3, 2, 0], &[1, 3, 0, 2], &b, &[2, 0, 3], &c);
         assert_tensors_equal(&mut out, &mut solution);
     }
 
@@ -755,10 +951,10 @@ mod tests {
             Complex64::new(1.1605590114481037, -1.8451851363285414),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[4], solution_data);
-        let b = Tensor::new_from_flat(&[1, 2, 3, 4], b_data);
-        let c = Tensor::new_from_flat(&[6, 3, 5, 2], c_data);
-        let d = Tensor::new_from_flat(&[6, 5, 1], d_data);
+        let mut solution = Tensor::new_from_flat(&[4], solution_data, None);
+        let b = Tensor::new_from_flat(&[1, 2, 3, 4], b_data, None);
+        let c = Tensor::new_from_flat(&[6, 3, 5, 2], c_data, None);
+        let d = Tensor::new_from_flat(&[6, 5, 1], d_data, None);
 
         // Contract the tensors
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], &b, &[5, 2, 4, 1], &c);

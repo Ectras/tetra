@@ -16,7 +16,7 @@ fn random_tensor(shape: &[u32]) -> Tensor {
     let data = (0..number_elements)
         .map(|_| Complex64::new(range.sample(&mut rng), range.sample(&mut rng)))
         .collect::<Vec<_>>();
-    Tensor::new_from_flat(shape, data)
+    Tensor::new_from_flat(shape, data, None)
 }
 
 #[inline]
