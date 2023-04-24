@@ -20,6 +20,7 @@ fn random_tensor(shape: &[u32]) -> Tensor {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn consecutive_contraction(
     b: &Tensor,
     c: &Tensor,
