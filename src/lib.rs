@@ -227,6 +227,7 @@ impl Tensor {
     /// Actually transposes the underlying data according to the current axis permutation.
     /// This should not affect the tensor as observable from the outside (e.g. shape(),
     /// size(), get() and similar should show no difference).
+    #[allow(dead_code)]
     fn materialize_transpose(&mut self) {
         self.data = self.compute_transposed_data(&self.inv_permutation);
         self.shape = self.inv_permutation.apply_inverse(&self.shape);
