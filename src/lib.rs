@@ -73,9 +73,11 @@ impl Tensor {
             if layout == Layout::RowMajor {
                 let mut dims = dimensions.to_vec();
                 dims.reverse();
-                (Permutation::new((0..dimensions.len()).rev().collect()), dims)
+                (
+                    Permutation::new((0..dimensions.len()).rev().collect()),
+                    dims,
+                )
             } else {
-
                 (Permutation::identity(dimensions.len()), dimensions.to_vec())
             }
         } else {
@@ -480,12 +482,25 @@ mod tests {
         let mut row_data = Vec::new();
         let index_size = [1, 3, 9];
         let dimensions = [3, 3, 3];
-        for mut dims in index{
-            col_data.push(Complex64::new(dims.iter().zip(index_size.iter()).map(|(i, size)| (i * size) as f64 ).product::<f64>(), 0.0));
+        for mut dims in index {
+            col_data.push(Complex64::new(
+                dims.iter()
+                    .zip(index_size.iter())
+                    .map(|(i, size)| (i * size) as f64)
+                    .product::<f64>(),
+                0.0,
+            ));
             dims.reverse();
-            row_data.push(Complex64::new(dims.iter().zip(index_size.iter()).map(|(i, size)| (i * size) as f64 ).product::<f64>(), 0.0));
+            row_data.push(Complex64::new(
+                dims.iter()
+                    .zip(index_size.iter())
+                    .map(|(i, size)| (i * size) as f64)
+                    .product::<f64>(),
+                0.0,
+            ));
         }
-        let mut col_tensor = Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
+        let mut col_tensor =
+            Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
         let mut row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
 
         assert_tensors_equal(&mut col_tensor, &mut row_tensor);
