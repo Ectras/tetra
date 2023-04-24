@@ -69,19 +69,16 @@ impl Tensor {
         let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
         assert_eq!(total_items, data.len());
 
-        let (inv_permutation, dims) = if let Some(layout) = layout {
-            if layout == Layout::RowMajor {
+        let (inv_permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
+            Layout::RowMajor => {
                 let mut dims = dimensions.to_vec();
                 dims.reverse();
                 (
                     Permutation::new((0..dimensions.len()).rev().collect()),
                     dims,
                 )
-            } else {
-                (Permutation::identity(dimensions.len()), dimensions.to_vec())
             }
-        } else {
-            (Permutation::identity(dimensions.len()), dimensions.to_vec())
+            Layout::ColumnMajor => (Permutation::identity(dimensions.len()), dimensions.to_vec()),
         };
 
         // Construct tensor
