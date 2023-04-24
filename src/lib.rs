@@ -69,19 +69,24 @@ impl Tensor {
         let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
         assert_eq!(total_items, data.len());
 
-        let inv_permutation = if let Some(layout) = layout {
+        let (inv_permutation, dims) = if let Some(layout) = layout {
             if layout == Layout::RowMajor {
-                Permutation::new((0..dimensions.len()).rev().collect())
+                let mut dims = dimensions.to_vec();
+                dims.reverse();
+                (
+                    Permutation::new((0..dimensions.len()).rev().collect()),
+                    dims,
+                )
             } else {
-                Permutation::identity(dimensions.len())
+                (Permutation::identity(dimensions.len()), dimensions.to_vec())
             }
         } else {
-            Permutation::identity(dimensions.len())
+            (Permutation::identity(dimensions.len()), dimensions.to_vec())
         };
 
         // Construct tensor
         Self {
-            shape: dimensions.to_vec(),
+            shape: dims,
             inv_permutation,
             data,
         }
@@ -222,6 +227,7 @@ impl Tensor {
     /// Actually transposes the underlying data according to the current axis permutation.
     /// This should not affect the tensor as observable from the outside (e.g. shape(),
     /// size(), get() and similar should show no difference).
+    #[allow(dead_code)]
     fn materialize_transpose(&mut self) {
         self.data = self.compute_transposed_data(&self.inv_permutation);
         self.shape = self.inv_permutation.apply_inverse(&self.shape);
@@ -468,6 +474,37 @@ mod tests {
         assert_eq!(t.compute_index(&[0, 1, 1, 0]), 10);
         assert_eq!(t.compute_index(&[0, 1, 2, 0]), 18);
         assert_eq!(t.compute_index(&[1, 3, 4, 0]), 39);
+    }
+
+    #[test]
+    fn test_new_from_flat() {
+        let index = (0..3).map(|_e| 0..3).multi_cartesian_product();
+        let mut col_data = Vec::new();
+        let mut row_data = Vec::new();
+        let index_size = [1, 3, 9];
+        let dimensions = [3, 3, 3];
+        for mut dims in index {
+            col_data.push(Complex64::new(
+                dims.iter()
+                    .zip(index_size.iter())
+                    .map(|(i, size)| (i * size) as f64)
+                    .product::<f64>(),
+                0.0,
+            ));
+            dims.reverse();
+            row_data.push(Complex64::new(
+                dims.iter()
+                    .zip(index_size.iter())
+                    .map(|(i, size)| (i * size) as f64)
+                    .product::<f64>(),
+                0.0,
+            ));
+        }
+        let mut col_tensor =
+            Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
+        let mut row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
+
+        assert_tensors_equal(&mut col_tensor, &mut row_tensor);
     }
 
     #[test]
