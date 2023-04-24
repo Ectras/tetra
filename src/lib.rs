@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_new_from_flat() {
-        let index = (0..3).map(|e| 0..3).multi_cartesian_product();
+        let index = (0..3).map(|_e| 0..3).multi_cartesian_product();
         let mut col_data = Vec::new();
         let mut row_data = Vec::new();
         let index_size = [1, 3, 9];
