@@ -583,6 +583,83 @@ mod tests {
     }
 
     #[test]
+    fn test_get_raw_data() {
+        let mut a = Tensor::new(&[2, 3, 4]);
+        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
+
+        let a_data = a.get_raw_data();
+        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
+        assert_eq!(*a_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
+        assert_eq!(*a_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
+    }
+
+    #[test]
+    fn test_get_raw_data_with_permute() {
+        let mut a = Tensor::new(&[2, 3, 4]);
+        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
+        let b = a.clone();
+        a.transpose(&Permutation::new(vec![0, 2, 1]));
+
+        let a_data = a.get_raw_data();
+        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
+        assert_eq!(*a_data.get(14).unwrap(), Complex64::new(0.0, -1.0));
+        assert_eq!(*a_data.get(19).unwrap(), Complex64::new(-5.0, 0.0));
+
+        // Ensure data is not shared when permuting.
+        let b_data = b.get_raw_data();
+        assert_eq!(*b_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
+        assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
+        assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
+    }
+
+    #[test]
+    fn test_get_mut_raw_data() {
+        let mut a = Tensor::new(&[2, 3, 4]);
+        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
+        let mut b = a.clone();
+
+        let mut a_data = a.get_raw_data_mut();
+        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
+        assert_eq!(*a_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
+        assert_eq!(*a_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
+        a_data.insert(15, Complex64::new(3.0, 4.33));
+
+        let b_data = b.get_raw_data_mut();
+        assert_eq!(*b_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
+        assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
+        assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
+        assert_eq!(*b_data.get(15).unwrap(), Complex64::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn test_get_mut_raw_data_with_permute() {
+        let mut a = Tensor::new(&[2, 3, 4]);
+        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
+        let mut b = a.clone();
+        a.transpose(&Permutation::new(vec![2, 1, 0]));
+
+        let mut a_data = a.get_raw_data_mut();
+        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
+        assert_eq!(*a_data.get(7).unwrap(), Complex64::new(0.0, -1.0));
+        assert_eq!(*a_data.get(21).unwrap(), Complex64::new(-5.0, 0.0));
+        a_data.insert(23, Complex64::new(3.0, 4.33));
+
+        let b_data = b.get_raw_data_mut();
+        assert_eq!(*b_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
+        assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
+        assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
+        assert_eq!(*b_data.get(15).unwrap(), Complex64::new(0.0, 0.0));
+    }
+
+    #[test]
     fn test_transpose() {
         let mut a = Tensor::new(&[2, 3, 4]);
         a.insert(&[0, 0, 1], Complex64::new(1.0, 2.0));
