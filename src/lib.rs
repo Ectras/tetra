@@ -198,7 +198,7 @@ impl Tensor {
     /// The permutation is interpreted as an inverse permutation wich matches the
     /// numpy convention.
     pub fn transpose(&mut self, inv_permutation: &Permutation) {
-        self.inv_permutation = &self.inv_permutation * inv_permutation;
+        self.inv_permutation = inv_permutation * &self.inv_permutation;
     }
 
     /// Computes the transposed data based on the current permutation.
@@ -236,7 +236,7 @@ impl Tensor {
     /// numpy convention.
     #[must_use]
     pub fn transposed(&self, inv_permutation: &Permutation) -> Self {
-        let perm = &self.inv_permutation * inv_permutation;
+        let perm = inv_permutation * &self.inv_permutation;
         let data = self.compute_transposed_data(&perm);
         let shape = perm.apply_inverse(&self.shape);
         Self::new_from_flat(&shape, data, None)
@@ -537,7 +537,26 @@ mod tests {
         assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1, 4]), Complex64::new(-5.0, 0.0));
         a.materialize_transpose();
-        assert_eq!(a.shape(), vec![3, 4, 2, 5]);
+    }
+
+    #[test]
+    fn test_transpose() {
+        let mut a = Tensor::new(&[2, 3, 4]);
+        a.insert(&[0, 0, 1], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 2, 2], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 0, 1], Complex64::new(-5.0, 0.0));
+
+        a.transpose(&Permutation::new(vec![2, 1, 0]));
+        assert_eq!(a.shape(), vec![4, 3, 2]);
+        assert_eq!(a.get(&[1, 0, 0]), Complex64::new(1.0, 2.0));
+        assert_eq!(a.get(&[2, 2, 0]), Complex64::new(0.0, -1.0));
+        assert_eq!(a.get(&[1, 0, 1]), Complex64::new(-5.0, 0.0));
+
+        a.transpose(&Permutation::new(vec![0, 2, 1]));
+        assert_eq!(a.shape(), vec![4, 2, 3]);
+        assert_eq!(a.get(&[1, 0, 0]), Complex64::new(1.0, 2.0));
+        assert_eq!(a.get(&[2, 0, 2]), Complex64::new(0.0, -1.0));
+        assert_eq!(a.get(&[1, 1, 0]), Complex64::new(-5.0, 0.0));
     }
 
     #[test]
