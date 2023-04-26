@@ -14,8 +14,8 @@ impl Decomposition for Tensor {
     fn qr(&mut self) -> (Tensor, Tensor) {
         assert!(self.ndim() == 2, "Only able to decompose matrices");
         // Get shape of input Tensor
-        let m = self.shape[0];
-        let n = self.shape[1];
+        let m = self.size(Some(0));
+        let n = self.size(Some(1));
         let min_dim = min(m, n) as usize;
 
         // Leading dimension of `self`
@@ -42,7 +42,7 @@ impl Decomposition for Tensor {
             zgeqp3(
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.data,
+                &mut self.get_raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut jpvt,
                 &mut tau,
@@ -63,7 +63,7 @@ impl Decomposition for Tensor {
             zgeqp3(
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.data,
+                &mut self.get_raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut jpvt,
                 &mut tau,
@@ -90,7 +90,7 @@ impl Decomposition for Tensor {
                 m.try_into().unwrap(),
                 min(m, n).try_into().unwrap(),
                 min(m, n).try_into().unwrap(),
-                &mut self.data,
+                &mut self.get_raw_data_mut(),
                 lda.try_into().unwrap(),
                 &tau,
                 &mut work,
@@ -111,8 +111,8 @@ impl Decomposition for Tensor {
     fn svd(&mut self) -> (Tensor, Tensor, Tensor) {
         assert!(self.ndim() == 2, "Only able to decompose matrices");
         // Get shape of input Tensor
-        let m = self.shape[0];
-        let n = self.shape[1];
+        let m = self.size(Some(0));
+        let n = self.size(Some(1));
         let min_dim = min(m, n) as usize;
         let max_dim = max(m, n) as usize;
 
@@ -151,12 +151,12 @@ impl Decomposition for Tensor {
                 b'S',
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.data,
+                &mut self.get_raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut s,
-                &mut u_tensor.data,
+                &mut u_tensor.get_raw_data_mut(),
                 ldu.try_into().unwrap(),
-                &mut vt_tensor.data,
+                &mut vt_tensor.get_raw_data_mut(),
                 ldvt.try_into().unwrap(),
                 &mut work,
                 lwork,
@@ -177,12 +177,12 @@ impl Decomposition for Tensor {
                 b'S',
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.data,
+                &mut self.get_raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut s,
-                &mut u_tensor.data,
+                &mut u_tensor.get_raw_data_mut(),
                 ldu.try_into().unwrap(),
-                &mut vt_tensor.data,
+                &mut vt_tensor.get_raw_data_mut(),
                 ldvt.try_into().unwrap(),
                 &mut work,
                 lwork,
@@ -192,6 +192,7 @@ impl Decomposition for Tensor {
             );
             s.set_len(s.capacity());
         }
+
         // Fill in s_tensor
         for i in 0..ldvt {
             s_tensor.insert(&[i, i], Complex64::new(s[i as usize], 0.0));
