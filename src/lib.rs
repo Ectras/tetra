@@ -1,4 +1,9 @@
-use std::collections::HashSet;
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    collections::HashSet,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 extern crate openblas_src;
 use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
@@ -22,7 +27,7 @@ pub enum Layout {
 #[derive(Clone, Debug)]
 pub struct Tensor {
     /// The shape of the tensor.
-    shape: Vec<u32>,
+    shape: RefCell<Vec<u32>>,
 
     /// The current inverse permutation. Using the inverse is easier, because it
     /// maps from a given output element to the corresponding input element. E.g.,
@@ -30,10 +35,10 @@ pub struct Tensor {
     /// The original permutation, on the other hand, maps a given input element to
     /// the corresponding output output element. The above example would be similar
     /// to `shape[permutation.index_of(axis)]`.
-    inv_permutation: Permutation,
+    inv_permutation: RefCell<Permutation>,
 
     /// The tensor data in column-major order.
-    data: Vec<Complex64>,
+    data: RefCell<Rc<Vec<Complex64>>>,
 }
 
 impl Tensor {
@@ -48,11 +53,13 @@ impl Tensor {
         assert!(!dimensions.is_empty());
 
         // Construct tensor
+        let iden = Permutation::identity(dimensions.len());
         let total_items = dimensions.iter().product::<u32>();
+        let zero_data = vec![Complex64::default(); total_items.try_into().unwrap()];
         Self {
-            shape: dimensions.to_vec(),
-            inv_permutation: Permutation::identity(dimensions.len()),
-            data: vec![Complex64::new(0.0, 0.0); total_items.try_into().unwrap()],
+            shape: RefCell::new(dimensions.to_vec()),
+            inv_permutation: RefCell::new(iden),
+            data: RefCell::new(Rc::new(zero_data)),
         }
     }
 
@@ -83,9 +90,9 @@ impl Tensor {
 
         // Construct tensor
         Self {
-            shape: dims,
-            inv_permutation,
-            data,
+            shape: RefCell::new(dims),
+            inv_permutation: RefCell::new(inv_permutation),
+            data: RefCell::new(Rc::new(data)),
         }
     }
 
@@ -98,11 +105,13 @@ impl Tensor {
         assert!(!dimensions.is_empty());
 
         // Construct tensor
+        let iden = Permutation::identity(dimensions.len());
         let total_items = dimensions.iter().product::<u32>();
+        let uninitialized = Vec::with_capacity(total_items.try_into().unwrap());
         Self {
-            shape: dimensions.to_vec(),
-            inv_permutation: Permutation::identity(dimensions.len()),
-            data: Vec::with_capacity(total_items.try_into().unwrap()),
+            shape: RefCell::new(dimensions.to_vec()),
+            inv_permutation: RefCell::new(iden),
+            data: RefCell::new(Rc::new(uninitialized)),
         }
     }
 
@@ -112,34 +121,41 @@ impl Tensor {
     /// # Panics
     /// Panics if the coordinates are invalid.
     fn compute_index(&self, coordinates: &[u32]) -> usize {
+        // Borrow the data
+        let inv_permutation = self.inv_permutation.borrow();
+        let shape = self.shape.borrow();
+
         // Get the unpermuted coordinates
-        let dims = self.inv_permutation.apply(coordinates);
+        let dims = inv_permutation.apply(coordinates);
 
         // Validate coordinates
-        assert_eq!(dims.len(), self.shape.len());
+        assert_eq!(dims.len(), shape.len());
         for (i, &dim_i) in dims.iter().enumerate() {
-            assert!(dim_i < self.shape[i]);
+            assert!(dim_i < shape[i]);
         }
 
         // Compute index
         let mut idx = dims[dims.len() - 1];
         for i in (0..dims.len() - 1).rev() {
-            idx = dims[i] + self.shape[i] * idx;
+            idx = dims[i] + shape[i] * idx;
         }
         idx.try_into().unwrap()
     }
 
     /// Inserts a value at the given position.
     pub fn insert(&mut self, coordinates: &[u32], value: Complex64) {
+        let mut data = self.data.borrow_mut();
+        let data = Rc::get_mut(&mut data).unwrap();
         let idx = self.compute_index(coordinates);
-        self.data[idx] = value;
+        data[idx] = value;
     }
 
     /// Gets the value at the given position.
     #[must_use]
     pub fn get(&self, coordinates: &[u32]) -> Complex64 {
+        let data = self.data.borrow();
         let idx = self.compute_index(coordinates);
-        self.data[idx]
+        data[idx]
     }
 
     /// Returns a copy of the current shape.
@@ -155,7 +171,9 @@ impl Tensor {
     /// ```
     #[must_use]
     pub fn shape(&self) -> Vec<u32> {
-        self.inv_permutation.apply_inverse(&self.shape)
+        let shape = self.shape.borrow();
+        let inv_permutation = self.inv_permutation.borrow();
+        inv_permutation.apply_inverse(&shape)
     }
 
     /// Returns the size of a single axis or of the whole tensor.
@@ -174,9 +192,12 @@ impl Tensor {
     #[must_use]
     pub fn size(&self, axis: Option<usize>) -> u32 {
         if let Some(axis) = axis {
-            self.shape[self.inv_permutation[axis]]
+            let shape = self.shape.borrow();
+            let inv_permutation = self.inv_permutation.borrow();
+            shape[inv_permutation[axis]]
         } else {
-            self.data.len().try_into().unwrap()
+            let data = self.data.borrow();
+            data.len().try_into().unwrap()
         }
     }
 
@@ -190,7 +211,8 @@ impl Tensor {
     /// ```
     #[must_use]
     pub fn ndim(&self) -> usize {
-        self.shape.len()
+        let shape = self.shape.borrow();
+        shape.len()
     }
 
     /// Transposes the tensor axes according to the permutation.
@@ -198,48 +220,61 @@ impl Tensor {
     /// The permutation is interpreted as an inverse permutation wich matches the
     /// numpy convention.
     pub fn transpose(&mut self, inv_permutation: &Permutation) {
-        self.inv_permutation = inv_permutation * &self.inv_permutation;
+        self.inv_permutation
+            .replace_with(|old_perm| inv_permutation * old_perm);
     }
 
     /// Computes the transposed data based on the current permutation.
-    fn compute_transposed_data(&self, permutation: &Permutation) -> Vec<Complex64> {
+    fn compute_transposed_data(&self, data: &[Complex64]) -> Vec<Complex64> {
+        // Borrow tensor data
+        let inv_permutation = self.inv_permutation.borrow();
+        let shape = self.shape.borrow();
+
         // Get the permutation as [i32]
-        let perm: Vec<_> = permutation
+        let perm: Vec<_> = inv_permutation
             .order()
             .iter()
             .map(|x| (*x).try_into().unwrap())
             .collect();
 
         // Get the shape as [i32]
-        let shape: Vec<_> = self
-            .shape
-            .iter()
-            .map(|x| (*x).try_into().unwrap())
-            .collect();
+        let shape: Vec<_> = shape.iter().map(|x| (*x).try_into().unwrap()).collect();
 
         // Transpose data and shape
-        transpose_simple(&perm, &self.data, &shape)
+        transpose_simple(&perm, data, &shape)
     }
 
     /// Actually transposes the underlying data according to the current axis permutation.
     /// This should not affect the tensor as observable from the outside (e.g. shape(),
     /// size(), get() and similar should show no difference).
-    #[allow(dead_code)]
-    fn materialize_transpose(&mut self) {
-        self.data = self.compute_transposed_data(&self.inv_permutation);
-        self.shape = self.inv_permutation.apply_inverse(&self.shape);
-        self.inv_permutation = Permutation::identity(self.shape.len());
+    fn materialize_transpose(&self) {
+        let needs_transpose = !self.inv_permutation.borrow().is_identity();
+        if needs_transpose {
+            self.data
+                .replace_with(|old_data| Rc::new(self.compute_transposed_data(old_data)));
+            self.shape
+                .replace_with(|old_shape| self.inv_permutation.borrow().apply_inverse(old_shape));
+            self.inv_permutation
+                .replace_with(|old_perm| Permutation::identity(old_perm.len()));
+        }
     }
 
-    /// Creates the transposed tensor. Performs a full data copy.
-    /// The permutation is interpreted as an inverse permutation wich matches the
-    /// numpy convention.
-    #[must_use]
-    pub fn transposed(&self, inv_permutation: &Permutation) -> Self {
-        let perm = inv_permutation * &self.inv_permutation;
-        let data = self.compute_transposed_data(&perm);
-        let shape = perm.apply_inverse(&self.shape);
-        Self::new_from_flat(&shape, data, None)
+    /// Gets a reference to the raw (i.e. flat) vector data. If the tensor has a non-identity permutation,
+    /// this function will transpose the raw data of the tensor before returning the reference. If the raw
+    /// data was shared with other tensors, they will not be affected by the transpose.
+    pub fn get_raw_data(&self) -> impl Deref<Target = Vec<Complex64>> + '_ {
+        self.materialize_transpose();
+        Ref::map(self.data.borrow(), Rc::deref)
+    }
+
+    /// Gets a mutable reference to the raw (i.e. flat) vector data. If the tensor has a non-identity permutation,
+    /// this function will transpose the raw data of the tensor before returning the reference. If the raw
+    /// data was shared with other tensors, they will not be affected by the transpose.
+    /// If no transpose is needed and the data is shared, it will be copied to
+    /// ensure that changes through the mutable reference are not reflected on other tensors.
+    pub fn get_raw_data_mut(&mut self) -> impl DerefMut<Target = Vec<Complex64>> + '_ {
+        self.materialize_transpose();
+        RefMut::map(self.data.borrow_mut(), Rc::make_mut)
     }
 }
 
@@ -257,8 +292,8 @@ pub fn contract(
     b_indices: &[u32],
     b: &Tensor,
 ) -> Tensor {
-    assert_eq!(a_indices.len(), a.shape.len());
-    assert_eq!(b_indices.len(), b.shape.len());
+    assert_eq!(a_indices.len(), a.ndim());
+    assert_eq!(b_indices.len(), b.ndim());
 
     // Find contracted indices
     let b_legs = b_indices.iter().copied().collect::<HashSet<_>>();
@@ -314,7 +349,9 @@ pub fn contract(
     }
 
     // Get transposed A
-    let a_transposed = a.transposed(&Permutation::new(a_perm));
+    let mut a_view = a.clone();
+    a_view.transpose(&Permutation::new(a_perm));
+    let a_data = a_view.get_raw_data();
 
     // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for B
     let mut b_remaining = 0;
@@ -337,7 +374,9 @@ pub fn contract(
     }
 
     // Get transposed B
-    let b_transposed = b.transposed(&Permutation::new(b_perm));
+    let mut b_view = b.clone();
+    b_view.transpose(&Permutation::new(b_perm));
+    let b_data = b_view.get_raw_data();
 
     // Make sure the connecting matrix dimensions match
     assert_eq!(a_contracted_size, b_contracted_size);
@@ -373,65 +412,70 @@ pub fn contract(
         c_shape.push(*hyperedge_size);
         remaining.push(*hyperedge_index);
     }
+
     // Create output tensor
     let mut out = Tensor::new_uninitialized(&c_shape);
 
-    let hyperedge_iter = if hyperedge_size.is_empty() {
-        [0..1].into_iter().multi_cartesian_product()
-    } else {
-        hyperedge_size
-            .clone()
-            .iter()
-            .map(|&e| 0..e)
-            .multi_cartesian_product()
-    };
+    // Scope to limit lifetime of mutable out data borrow
+    {
+        let mut out = out.get_raw_data_mut();
+        let out_data = &mut *out;
 
-    for dim in hyperedge_iter {
-        let mut index: usize = 0;
-        for (i, size) in zip(dim, &hyperedge_size) {
-            index = (index + i as usize) * (*size) as usize;
-        }
-        if !hyperedge_size.is_empty() {
-            index /= hyperedge_size[hyperedge_size.len() - 1] as usize;
+        let hyperedge_iter = if hyperedge_size.is_empty() {
+            [0..1].into_iter().multi_cartesian_product()
+        } else {
+            hyperedge_size
+                .clone()
+                .iter()
+                .map(|&e| 0..e)
+                .multi_cartesian_product()
+        };
+
+        for dim in hyperedge_iter {
+            let mut index: usize = 0;
+            for (i, size) in zip(dim, &hyperedge_size) {
+                index = (index + i as usize) * (*size) as usize;
+            }
+            if !hyperedge_size.is_empty() {
+                index /= hyperedge_size[hyperedge_size.len() - 1] as usize;
+            }
+
+            // Compute ZGEMM
+            unsafe {
+                let out_start = out_data.as_mut_ptr();
+                let out_chunk_start = out_start.add(index * c_chunk_size);
+
+                // Make sure that we are not writing past the allocated memory
+                let out_chunk_end = out_chunk_start.add(c_chunk_size);
+                assert!(
+                    usize::try_from(out_chunk_end.offset_from(out_start)).unwrap()
+                        <= out_data.capacity()
+                );
+
+                // Perform matrix-matrix multiplication
+                cblas_zgemm(
+                    CBLAS_LAYOUT::CblasColMajor,
+                    CBLAS_TRANSPOSE::CblasNoTrans,
+                    CBLAS_TRANSPOSE::CblasNoTrans,
+                    a_remaining_size.try_into().unwrap(),
+                    b_remaining_size.try_into().unwrap(),
+                    b_contracted_size.try_into().unwrap(),
+                    &Complex64::new(1.0, 0.0) as *const _ as *const _,
+                    a_data[index * a_chunk_size..(index + 1) * a_chunk_size].as_ptr() as *const _,
+                    a_remaining_size.try_into().unwrap(),
+                    b_data[index * b_chunk_size..(index + 1) * b_chunk_size].as_ptr() as *const _,
+                    b_contracted_size.try_into().unwrap(),
+                    &Complex64::new(0.0, 0.0) as *const _ as *const _,
+                    out_chunk_start as *mut _,
+                    a_remaining_size.try_into().unwrap(),
+                );
+            }
         }
 
-        // Compute ZGEMM
+        // Update length as full vector is now initialized
         unsafe {
-            let out_start = out.data.as_mut_ptr();
-            let out_chunk_start = out_start.add(index * c_chunk_size);
-
-            // Make sure that we are not writing past the allocated memory
-            let out_chunk_end = out_chunk_start.add(c_chunk_size);
-            assert!(
-                usize::try_from(out_chunk_end.offset_from(out_start)).unwrap()
-                    <= out.data.capacity()
-            );
-
-            // Perform matrix-matrix multiplication
-            cblas_zgemm(
-                CBLAS_LAYOUT::CblasColMajor,
-                CBLAS_TRANSPOSE::CblasNoTrans,
-                CBLAS_TRANSPOSE::CblasNoTrans,
-                a_remaining_size.try_into().unwrap(),
-                b_remaining_size.try_into().unwrap(),
-                b_contracted_size.try_into().unwrap(),
-                &Complex64::new(1.0, 0.0) as *const _ as *const _,
-                a_transposed.data[index * a_chunk_size..(index + 1) * a_chunk_size].as_ptr()
-                    as *const _,
-                a_remaining_size.try_into().unwrap(),
-                b_transposed.data[index * b_chunk_size..(index + 1) * b_chunk_size].as_ptr()
-                    as *const _,
-                b_contracted_size.try_into().unwrap(),
-                &Complex64::new(0.0, 0.0) as *const _ as *const _,
-                out_chunk_start as *mut _,
-                a_remaining_size.try_into().unwrap(),
-            );
+            out_data.set_len(out_data.capacity());
         }
-    }
-
-    // Update length as full vector is now initialized
-    unsafe {
-        out.data.set_len(out.data.capacity());
     }
 
     // Find permutation for output tensor
@@ -451,12 +495,11 @@ mod tests {
     use super::*;
 
     fn assert_tensors_equal(left: &mut Tensor, right: &mut Tensor) {
-        assert_eq!(left.data.len(), right.data.len());
         assert_eq!(left.shape(), right.shape());
 
-        left.materialize_transpose();
-        right.materialize_transpose();
-        for (va, vb) in zip(&left.data, &right.data) {
+        let left_data = left.get_raw_data();
+        let right_data = right.get_raw_data();
+        for (va, vb) in zip(&*left_data, &*right_data) {
             assert_approx_eq!(f64, va.re, vb.re, epsilon = 1e-14);
             assert_approx_eq!(f64, va.im, vb.im, epsilon = 1e-14);
         }
