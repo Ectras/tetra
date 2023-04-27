@@ -33,11 +33,7 @@ stages:
     ## 
     - ssh-keyscan -H gitlab.lrz.de >> ~/.ssh/known_hosts
 
-default:
-  tags:
-    - kubernetes
-
-docker:build:
+.docker-build:
   stage: docker
   image: docker:20-dind
   services:
@@ -49,13 +45,35 @@ docker:build:
     DOCKER_TLS_CERTDIR: ""
   before_script:
     - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
+  after_script:
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+
+default:
+  tags:
+    - kubernetes
+
+# Build docker image when Dockerfile changes
+docker:rebuild:
+  extends: .docker-build
   script:
     - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
   rules:
     - if: $CI_COMMIT_BRANCH
       changes:
         - Dockerfile
+
+# Build docker image when it does not exist yet
+docker:build:
+  extends: .docker-build
+  script:
+    - apk update
+    - apk add curl jq
+    - if [[ $( curl --header "PRIVATE-TOKEN:$REGISTRY_API_TOKEN" https://gitlab.lrz.de/api/v4/projects/$CI_PROJECT_ID/registry/repositories/$REGISTRY_ID/tags/$CI_COMMIT_REF_SLUG | jq -r '.name' ) == "$CI_COMMIT_REF_SLUG" ]] ; then
+        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' exists";
+      else
+        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' does not exist. Building...";
+        docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG .;
+      fi
 
 check:clippy:
   stage: main
