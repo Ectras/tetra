@@ -48,6 +48,23 @@ stages:
   after_script:
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
 
+.custom_functions: &custom_functions
+  - cached_docker_build() {
+      if docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG ; then
+        echo -e "\033[1;37mUsing previous '$CI_COMMIT_REF_SLUG' image as cache";
+        docker build --cache-from $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
+      elif docker pull $CI_REGISTRY_IMAGE:$CI_DEFAULT_BRANCH ; then
+        echo -e "\033[1;37mUsing default '$CI_COMMIT_REF_SLUG' image as cache";
+        docker build --cache-from $CI_REGISTRY_IMAGE:$CI_DEFAULT_BRANCH --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
+      else
+        echo -e "\033[1;37mNo image to use as cache for building available";
+        CACHE_IMAGE="";
+        docker build --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
+      fi;
+      docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG;
+    }
+  
+
 default:
   tags:
     - kubernetes
@@ -56,7 +73,8 @@ default:
 docker:rebuild:
   extends: .docker-build
   script:
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG .
+    - *custom_functions
+    - cached_docker_build
   rules:
     - if: $CI_COMMIT_BRANCH
       changes:
@@ -66,13 +84,14 @@ docker:rebuild:
 docker:build:
   extends: .docker-build
   script:
+    - *custom_functions
     - apk update
     - apk add curl jq
     - if [[ $( curl --header "PRIVATE-TOKEN:$REGISTRY_API_TOKEN" https://gitlab.lrz.de/api/v4/projects/$CI_PROJECT_ID/registry/repositories/$REGISTRY_ID/tags/$CI_COMMIT_REF_SLUG | jq -r '.name' ) == "$CI_COMMIT_REF_SLUG" ]] ; then
         echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' exists";
       else
         echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' does not exist. Building...";
-        docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG .;
+        cached_docker_build;
       fi
 
 check:clippy:
