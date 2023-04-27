@@ -51,13 +51,13 @@ stages:
 .custom_functions: &custom_functions
   - cached_docker_build() {
       if docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG ; then
-        echo -e "\033[1;37mUsing previous '$CI_COMMIT_REF_SLUG' image as cache";
+        echo -e "\033[1;37mUsing previous '$CI_COMMIT_REF_SLUG' image as cache\033[0m";
         docker build --cache-from $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
       elif docker pull $CI_REGISTRY_IMAGE:$CI_DEFAULT_BRANCH ; then
-        echo -e "\033[1;37mUsing default '$CI_COMMIT_REF_SLUG' image as cache";
+        echo -e "\033[1;37mUsing default '$CI_COMMIT_REF_SLUG' image as cache\033[0m";
         docker build --cache-from $CI_REGISTRY_IMAGE:$CI_DEFAULT_BRANCH --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
       else
-        echo -e "\033[1;37mNo image to use as cache for building available";
+        echo -e "\033[1;37mNo image to use as cache for building available\033[0m";
         CACHE_IMAGE="";
         docker build --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
       fi;
@@ -77,10 +77,10 @@ docker:build:
     - apk update
     - apk add curl jq
     - if [[ $( curl --header "PRIVATE-TOKEN:$REGISTRY_API_TOKEN" https://gitlab.lrz.de/api/v4/projects/$CI_PROJECT_ID/registry/repositories/$REGISTRY_ID/tags/$CI_COMMIT_REF_SLUG | jq -r '.name' ) == "$CI_COMMIT_REF_SLUG" ]] ; then
-        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' exists";
+        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' exists\033[0m";
       else
-        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' does not exist. Building...";
-        echo "IMAGE REBUILT" > built.flag;
+        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' does not exist. Building...\033[0m";
+        touch built.flag;
         cached_docker_build;
       fi
   artifacts:
@@ -97,7 +97,7 @@ docker:rebuild:
     - if ! test -f "built.flag" ; then
         cached_docker_build;
       else
-        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' already rebuilt by first docker job. Skipping...";
+        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' already rebuilt by first docker job. Skipping...\033[0m";
       fi
   rules:
     - if: $CI_COMMIT_BRANCH
