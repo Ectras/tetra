@@ -69,17 +69,6 @@ default:
   tags:
     - kubernetes
 
-# Build docker image when Dockerfile changes
-docker:rebuild:
-  extends: .docker-build
-  script:
-    - *custom_functions
-    - cached_docker_build
-  rules:
-    - if: $CI_COMMIT_BRANCH
-      changes:
-        - Dockerfile
-
 # Build docker image when it does not exist yet
 docker:build:
   extends: .docker-build
@@ -91,8 +80,31 @@ docker:build:
         echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' exists";
       else
         echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' does not exist. Building...";
+        echo "IMAGE REBUILT" > built.flag;
         cached_docker_build;
       fi
+  artifacts:
+    paths:
+      # The file signals that the Docker image has already been built in this pipeline
+      - built.flag
+    expire_in: 5 minutes
+
+# Build docker image when Dockerfile changes
+docker:rebuild:
+  extends: .docker-build
+  script:
+    - *custom_functions
+    - if ! test -f "built.flag" ; then
+        cached_docker_build;
+      else
+        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' already rebuilt by first docker job. Skipping...";
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - Dockerfile
+  needs:
+    - docker:build
 
 check:clippy:
   stage: main
