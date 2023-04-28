@@ -33,7 +33,11 @@ stages:
     ## 
     - ssh-keyscan -H gitlab.lrz.de >> ~/.ssh/known_hosts
 
-.docker-build:
+default:
+  tags:
+    - kubernetes
+
+docker:build:
   stage: docker
   image: docker:20-dind
   services:
@@ -45,12 +49,8 @@ stages:
     DOCKER_TLS_CERTDIR: ""
   before_script:
     - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
-  after_script:
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
-
-.custom_functions: &custom_functions
-  - cached_docker_build() {
-      if docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG ; then
+  script:
+    - if docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG ; then
         echo -e "\033[1;37mUsing previous '$CI_COMMIT_REF_SLUG' image as cache\033[0m";
         docker build --cache-from $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
       elif docker pull $CI_REGISTRY_IMAGE:$CI_DEFAULT_BRANCH ; then
@@ -61,50 +61,12 @@ stages:
         CACHE_IMAGE="";
         docker build --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG . ;
       fi;
-      docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG;
-    }
-  
-
-default:
-  tags:
-    - kubernetes
-
-# Build docker image when it does not exist yet
-docker:build:
-  extends: .docker-build
-  script:
-    - *custom_functions
-    - apk update
-    - apk add curl jq
-    - if [[ $( curl --header "PRIVATE-TOKEN:$REGISTRY_API_TOKEN" https://gitlab.lrz.de/api/v4/projects/$CI_PROJECT_ID/registry/repositories/$REGISTRY_ID/tags/$CI_COMMIT_REF_SLUG | jq -r '.name' ) == "$CI_COMMIT_REF_SLUG" ]] ; then
-        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' exists\033[0m";
-      else
-        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' does not exist. Building...\033[0m";
-        touch built.flag;
-        cached_docker_build;
-      fi
-  artifacts:
-    paths:
-      # The file signals that the Docker image has already been built in this pipeline
-      - built.flag
-    expire_in: 5 minutes
-
-# Build docker image when Dockerfile changes
-docker:rebuild:
-  extends: .docker-build
-  script:
-    - *custom_functions
-    - if ! test -f "built.flag" ; then
-        cached_docker_build;
-      else
-        echo -e "\033[1;37mImage '$CI_COMMIT_REF_SLUG' already rebuilt by first docker job. Skipping...\033[0m";
-      fi
+  after_script:
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
   rules:
     - if: $CI_COMMIT_BRANCH
       changes:
         - Dockerfile
-  needs:
-    - docker:build
 
 check:clippy:
   stage: main
