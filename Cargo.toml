@@ -16,13 +16,12 @@ num-complex = "0.4"
 openblas-src = { version = "0.10", features = ["system"] }
 hptt-sys = { git = "ssh://gitlab.lrz.de/quantum-research/hptt-sys.git", branch = "main" }
 lapack = "0.19"
-itertools = "0.10.5"
+itertools = "0.11.0"
 cblas-sys = "0.1.4"
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "0.5.1"
 float-cmp = "0.9"
-itertools = "0.10.5"
 rand = "0.8.5"
 
 [[bench]]
