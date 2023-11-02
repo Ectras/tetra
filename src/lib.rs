@@ -486,6 +486,8 @@ pub fn contract(
 
     // Find permutation for output tensor
     let mut c_perm = Permutation::between(&remaining, out_indices);
+
+    // Check if output is a scalar. If so, replace c_perm with a 1 element vector
     if c_perm.is_empty() {
         c_perm = Permutation::new(vec![0]);
     }
