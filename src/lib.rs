@@ -406,11 +406,17 @@ pub fn contract(
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
     let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
-    let c_chunk_size = c_shape.iter().product::<u32>() as usize;
+    let mut c_chunk_size = c_shape.iter().product::<u32>() as usize;
 
     for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedge_order) {
         c_shape.push(*hyperedge_size);
         remaining.push(*hyperedge_index);
+    }
+
+    // Check to allow contraction to a scalar. Only perform this check when c_shape is no longer modified.
+    if c_shape.is_empty() {
+        c_chunk_size = 1;
+        c_shape.push(1);
     }
 
     // Create output tensor
@@ -479,8 +485,12 @@ pub fn contract(
     }
 
     // Find permutation for output tensor
-    let c_perm = Permutation::between(&remaining, out_indices);
+    let mut c_perm = Permutation::between(&remaining, out_indices);
 
+    // Check if output is a scalar. If so, replace c_perm with a 1 element vector
+    if c_perm.is_empty() {
+        c_perm = Permutation::new(vec![0]);
+    }
     // Return transposed output tensor
     out.transpose(&c_perm);
     out
@@ -702,6 +712,25 @@ mod tests {
         assert_eq!(a.get(&[1, 0]), Complex64::new(0.0, 0.0));
         assert_eq!(a.get(&[1, 1]), Complex64::new(0.0, 0.0));
         assert_eq!(a.get(&[1, 2]), Complex64::new(23.0, 0.0));
+    }
+
+    #[test]
+    fn toy_contraction_to_scalar() {
+        // Create tensors
+        let mut b = Tensor::new(&[2]);
+        let mut c = Tensor::new(&[2]);
+
+        // Insert data into B and C
+        b.insert(&[0], Complex64::new(1.0, 0.0));
+        b.insert(&[1], Complex64::new(2.0, 0.0));
+        c.insert(&[0], Complex64::new(4.0, 0.0));
+        c.insert(&[1], Complex64::new(5.0, 0.0));
+
+        // Contract the tensors
+        let a = contract(&[], &[0], &b, &[0], &c);
+
+        // Check result in A
+        assert_eq!(a.get(&[0]), Complex64::new(14.0, 0.0));
     }
 
     #[test]
