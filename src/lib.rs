@@ -13,8 +13,6 @@ use num_complex::Complex64;
 use permutation::Permutation;
 use std::iter::zip;
 
-pub mod permutation;
-
 pub mod decomposition;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,13 +27,8 @@ pub struct Tensor {
     /// The shape of the tensor.
     shape: RefCell<Vec<u32>>,
 
-    /// The current inverse permutation. Using the inverse is easier, because it
-    /// maps from a given output element to the corresponding input element. E.g.,
-    /// getting the size of a permutated axis is just `shape[inv_permutation[axis]]`.
-    /// The original permutation, on the other hand, maps a given input element to
-    /// the corresponding output output element. The above example would be similar
-    /// to `shape[permutation.index_of(axis)]`.
-    inv_permutation: RefCell<Permutation>,
+    /// The current permutation of dimensions.
+    permutation: RefCell<Permutation>,
 
     /// The tensor data in column-major order.
     data: RefCell<Rc<Vec<Complex64>>>,
@@ -53,12 +46,12 @@ impl Tensor {
         assert!(!dimensions.is_empty());
 
         // Construct tensor
-        let iden = Permutation::identity(dimensions.len());
+        let iden = Permutation::one(dimensions.len());
         let total_items = dimensions.iter().product::<u32>();
         let zero_data = vec![Complex64::default(); total_items.try_into().unwrap()];
         Self {
             shape: RefCell::new(dimensions.to_vec()),
-            inv_permutation: RefCell::new(iden),
+            permutation: RefCell::new(iden),
             data: RefCell::new(Rc::new(zero_data)),
         }
     }
@@ -78,20 +71,19 @@ impl Tensor {
 
         let (inv_permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
             Layout::RowMajor => {
+                let perm_line: Vec<_> = (0..dimensions.len()).rev().collect();
+                let perm = Permutation::oneline(perm_line);
                 let mut dims = dimensions.to_vec();
                 dims.reverse();
-                (
-                    Permutation::new((0..dimensions.len()).rev().collect()),
-                    dims,
-                )
+                (perm, dims)
             }
-            Layout::ColumnMajor => (Permutation::identity(dimensions.len()), dimensions.to_vec()),
+            Layout::ColumnMajor => (Permutation::one(dimensions.len()), dimensions.to_vec()),
         };
 
         // Construct tensor
         Self {
             shape: RefCell::new(dims),
-            inv_permutation: RefCell::new(inv_permutation),
+            permutation: RefCell::new(inv_permutation),
             data: RefCell::new(Rc::new(data)),
         }
     }
@@ -105,12 +97,12 @@ impl Tensor {
         assert!(!dimensions.is_empty());
 
         // Construct tensor
-        let iden = Permutation::identity(dimensions.len());
+        let iden = Permutation::one(dimensions.len());
         let total_items = dimensions.iter().product::<u32>();
         let uninitialized = Vec::with_capacity(total_items.try_into().unwrap());
         Self {
             shape: RefCell::new(dimensions.to_vec()),
-            inv_permutation: RefCell::new(iden),
+            permutation: RefCell::new(iden),
             data: RefCell::new(Rc::new(uninitialized)),
         }
     }
@@ -122,11 +114,11 @@ impl Tensor {
     /// Panics if the coordinates are invalid.
     fn compute_index(&self, coordinates: &[u32]) -> usize {
         // Borrow the data
-        let inv_permutation = self.inv_permutation.borrow();
+        let permutation = self.permutation.borrow();
         let shape = self.shape.borrow();
 
         // Get the unpermuted coordinates
-        let dims = inv_permutation.apply(coordinates);
+        let dims = permutation.apply_inv_slice(coordinates);
 
         // Validate coordinates
         assert_eq!(dims.len(), shape.len());
@@ -163,17 +155,17 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
-    /// # use tetra::permutation::Permutation;
+    /// # use permutation::Permutation;
     /// let mut t = Tensor::new(&[3, 2, 5, 4, 1]);
     /// assert_eq!(t.shape(), vec![3, 2, 5, 4, 1]);
-    /// t.transpose(&Permutation::new(vec![3, 1, 4, 0, 2]));
+    /// t.transpose(&Permutation::oneline([3, 1, 4, 0, 2]));
     /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
     /// ```
     #[must_use]
     pub fn shape(&self) -> Vec<u32> {
         let shape = self.shape.borrow();
-        let inv_permutation = self.inv_permutation.borrow();
-        inv_permutation.apply_inverse(&shape)
+        let permutation = self.permutation.borrow();
+        permutation.apply_slice(&*shape)
     }
 
     /// Returns the size of a single axis or of the whole tensor.
@@ -193,8 +185,9 @@ impl Tensor {
     pub fn size(&self, axis: Option<usize>) -> u32 {
         if let Some(axis) = axis {
             let shape = self.shape.borrow();
-            let inv_permutation = self.inv_permutation.borrow();
-            shape[inv_permutation[axis]]
+            let permutation = self.permutation.borrow();
+            let perm_axis = permutation.apply_idx(axis);
+            shape[perm_axis]
         } else {
             let data = self.data.borrow();
             data.len().try_into().unwrap()
@@ -217,45 +210,40 @@ impl Tensor {
 
     /// Transposes the tensor axes according to the permutation.
     /// This method does not modify the data but only the view, hence it's zero cost.
-    /// The permutation is interpreted as an inverse permutation wich matches the
-    /// numpy convention.
-    pub fn transpose(&mut self, inv_permutation: &Permutation) {
-        self.inv_permutation
-            .replace_with(|old_perm| inv_permutation * old_perm);
+    pub fn transpose(&mut self, permutation: &Permutation) {
+        self.permutation
+            .replace_with(|old_perm| permutation * old_perm);
     }
 
     /// Computes the transposed data based on the current permutation.
     fn compute_transposed_data(&self, data: &[Complex64]) -> Vec<Complex64> {
         // Borrow tensor data
-        let inv_permutation = self.inv_permutation.borrow();
+        let mut permutation = self.permutation.borrow_mut();
         let shape = self.shape.borrow();
 
         // Get the permutation as [i32]
-        let perm: Vec<_> = inv_permutation
-            .order()
-            .iter()
-            .map(|x| (*x).try_into().unwrap())
-            .collect();
+        let mut raw_perm: Vec<_> = (0..i32::try_from(permutation.len()).unwrap()).collect();
+        permutation.apply_slice_in_place(&mut raw_perm);
 
         // Get the shape as [i32]
         let shape: Vec<_> = shape.iter().map(|x| (*x).try_into().unwrap()).collect();
 
         // Transpose data and shape
-        transpose_simple(&perm, data, &shape)
+        transpose_simple(&raw_perm, data, &shape)
     }
 
     /// Actually transposes the underlying data according to the current axis permutation.
     /// This should not affect the tensor as observable from the outside (e.g. shape(),
     /// size(), get() and similar should show no difference).
     fn materialize_transpose(&self) {
-        let needs_transpose = !self.inv_permutation.borrow().is_identity();
+        let needs_transpose = *self.permutation.borrow() != Permutation::one(self.ndim());
         if needs_transpose {
             self.data
                 .replace_with(|old_data| Rc::new(self.compute_transposed_data(old_data)));
             self.shape
-                .replace_with(|old_shape| self.inv_permutation.borrow().apply_inverse(old_shape));
-            self.inv_permutation
-                .replace_with(|old_perm| Permutation::identity(old_perm.len()));
+                .replace_with(|old_shape| self.permutation.borrow().apply_slice(old_shape));
+            self.permutation
+                .replace_with(|old_perm| Permutation::one(old_perm.len()));
         }
     }
 
@@ -350,7 +338,7 @@ pub fn contract(
 
     // Get transposed A
     let mut a_view = a.clone();
-    a_view.transpose(&Permutation::new(a_perm));
+    a_view.transpose(&Permutation::oneline(a_perm).inverse());
     let a_data = a_view.get_raw_data();
 
     // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for B
@@ -375,7 +363,7 @@ pub fn contract(
 
     // Get transposed B
     let mut b_view = b.clone();
-    b_view.transpose(&Permutation::new(b_perm));
+    b_view.transpose(&Permutation::oneline(b_perm).inverse());
     let b_data = b_view.get_raw_data();
 
     // Make sure the connecting matrix dimensions match
@@ -486,11 +474,13 @@ pub fn contract(
     }
 
     // Find permutation for output tensor
-    let mut c_perm = Permutation::between(&remaining, out_indices);
+    let p1 = permutation::sort(remaining);
+    let p2 = permutation::sort(out_indices).inverse();
+    let mut c_perm = &p2 * &p1;
 
     // Check if output is a scalar. If so, replace c_perm with a 1 element vector
-    if c_perm.is_empty() {
-        c_perm = Permutation::new(vec![0]);
+    if c_perm.len() == 0 {
+        c_perm = Permutation::one(1);
     }
     // Return transposed output tensor
     out.transpose(&c_perm);
@@ -565,13 +555,13 @@ mod tests {
         a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
         a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
 
-        a.transpose(&Permutation::new(vec![1, 2, 0]));
+        a.transpose(&Permutation::oneline([2, 0, 1]));
         assert_eq!(a.shape(), vec![3, 4, 2]);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 3, 0]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1]), Complex64::new(-5.0, 0.0));
 
-        a.transpose(&Permutation::new(vec![1, 2, 0]));
+        a.transpose(&Permutation::oneline([2, 0, 1]));
         assert_eq!(a.shape(), vec![4, 2, 3]);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[3, 0, 1]), Complex64::new(0.0, -1.0));
@@ -585,7 +575,7 @@ mod tests {
         a.insert(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
         a.insert(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
 
-        a.transpose(&Permutation::new(vec![1, 2, 0, 3]));
+        a.transpose(&Permutation::oneline([2, 0, 1, 3]));
         assert_eq!(a.shape(), vec![3, 4, 2, 5]);
         assert_eq!(a.get(&[0, 0, 0, 1]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
@@ -613,7 +603,7 @@ mod tests {
         a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
         a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
         let b = a.clone();
-        a.transpose(&Permutation::new(vec![0, 2, 1]));
+        a.transpose(&Permutation::oneline([0, 2, 1]));
 
         let a_data = a.get_raw_data();
         assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
@@ -655,7 +645,7 @@ mod tests {
         a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
         a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
         let mut b = a.clone();
-        a.transpose(&Permutation::new(vec![2, 1, 0]));
+        a.transpose(&Permutation::oneline([2, 1, 0]));
 
         let mut a_data = a.get_raw_data_mut();
         assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
@@ -677,13 +667,13 @@ mod tests {
         a.insert(&[0, 2, 2], Complex64::new(0.0, -1.0));
         a.insert(&[1, 0, 1], Complex64::new(-5.0, 0.0));
 
-        a.transpose(&Permutation::new(vec![2, 1, 0]));
+        a.transpose(&Permutation::oneline([2, 1, 0]));
         assert_eq!(a.shape(), vec![4, 3, 2]);
         assert_eq!(a.get(&[1, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[2, 2, 0]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[1, 0, 1]), Complex64::new(-5.0, 0.0));
 
-        a.transpose(&Permutation::new(vec![0, 2, 1]));
+        a.transpose(&Permutation::oneline([0, 2, 1]));
         assert_eq!(a.shape(), vec![4, 2, 3]);
         assert_eq!(a.get(&[1, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[2, 0, 2]), Complex64::new(0.0, -1.0));
