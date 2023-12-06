@@ -428,7 +428,8 @@ pub fn contract(
         let out_data = &mut *out;
 
         let hyperedge_iter = if hyperedge_size.is_empty() {
-            [0..1].into_iter().multi_cartesian_product()
+            let r = 0..1;
+            [r].into_iter().multi_cartesian_product()
         } else {
             hyperedge_size
                 .clone()
