@@ -1,4 +1,4 @@
 include:
   - project: 'quantum-research/rust-ci'
-    ref: d6bdcbd9c49d170543e354feb5e87143256059ca
+    ref: cd106174c941f7ac6714afdc4474364572286bba
     file: 'template.yml'
