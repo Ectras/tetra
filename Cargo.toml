@@ -18,6 +18,7 @@ hptt-sys = { git = "ssh://gitlab.lrz.de/quantum-research/hptt-sys.git", branch =
 lapack = "0.19.0"
 itertools = "0.12.0"
 cblas-sys = "0.1.4"
+permutation = "0.4.1"
 
 [dev-dependencies]
 criterion = "0.5.1"
