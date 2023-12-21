@@ -21,6 +21,8 @@ RUN --mount=type=ssh \
     cargo new dummy && \
     mv -f tmp/Cargo.toml tmp/Cargo.lock rust-toolchain.toml dummy && \
     cd dummy && \
+    # 1.3 Need to create a dummy benchmark directory as well
+    mkdir benches && touch benches/benchmarks.rs && \
     # 1.2 Set up SSH access to Gitlab
     mkdir -p -m 0700 ~/.ssh && \
     ssh-keyscan -H gitlab.lrz.de >> ~/.ssh/known_hosts && \
