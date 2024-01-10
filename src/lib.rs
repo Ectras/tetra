@@ -186,8 +186,7 @@ impl Tensor {
         if let Some(axis) = axis {
             let shape = self.shape.borrow();
             let permutation = self.permutation.borrow();
-            let perm_axis = permutation.apply_idx(axis);
-            shape[perm_axis]
+            shape[permutation.apply_inv_idx(axis)]
         } else {
             let data = self.data.borrow();
             data.len().try_into().unwrap()
