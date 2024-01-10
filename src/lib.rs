@@ -69,7 +69,7 @@ impl Tensor {
         let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
         assert_eq!(total_items, data.len());
 
-        let (inv_permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
+        let (permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
             Layout::RowMajor => {
                 let perm_line: Vec<_> = (0..dimensions.len()).rev().collect();
                 let perm = Permutation::oneline(perm_line);
@@ -83,7 +83,7 @@ impl Tensor {
         // Construct tensor
         Self {
             shape: RefCell::new(dims),
-            permutation: RefCell::new(inv_permutation),
+            permutation: RefCell::new(permutation),
             data: RefCell::new(Rc::new(data)),
         }
     }
@@ -479,14 +479,15 @@ pub fn contract(
     }
 
     // Find permutation for output tensor
-    let p1 = permutation::sort(remaining);
-    let p2 = permutation::sort(out_indices).inverse();
-    let mut c_perm = &p2 * &p1;
+    let remaining_to_sorted = permutation::sort(&remaining);
+    let sorted_to_out_indices = permutation::sort(out_indices).inverse();
+    let mut c_perm = &sorted_to_out_indices * &remaining_to_sorted;
 
     // Check if output is a scalar. If so, replace c_perm with a 1 element vector
     if c_perm.len() == 0 {
         c_perm = Permutation::one(1);
     }
+
     // Return transposed output tensor
     out.transpose(&c_perm);
     out
