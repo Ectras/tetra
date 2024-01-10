@@ -176,10 +176,16 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
-    /// let t = Tensor::new(&[1, 3, 5]);
+    /// # use permutation::Permutation as Permutation2;
+    /// let mut t = Tensor::new(&[1, 3, 5]);
     /// assert_eq!(t.size(None), 15);
     /// assert_eq!(t.size(Some(1)), 3);
     /// assert_eq!(t.size(Some(2)), 5);
+    /// assert_eq!(t.size(Some(0)), 1);
+    /// t.transpose(&Permutation2::oneline([1, 2, 0]));
+    /// assert_eq!(t.size(Some(0)), 5);
+    /// assert_eq!(t.size(Some(1)), 1);
+    /// assert_eq!(t.size(Some(2)), 3);
     /// ```
     #[must_use]
     pub fn size(&self, axis: Option<usize>) -> u32 {
@@ -556,12 +562,18 @@ mod tests {
 
         a.transpose(&Permutation::oneline([2, 0, 1]));
         assert_eq!(a.shape(), vec![3, 4, 2]);
+        assert_eq!(a.size(Some(0)), 3);
+        assert_eq!(a.size(Some(1)), 4);
+        assert_eq!(a.size(Some(2)), 2);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 3, 0]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1]), Complex64::new(-5.0, 0.0));
 
         a.transpose(&Permutation::oneline([2, 0, 1]));
         assert_eq!(a.shape(), vec![4, 2, 3]);
+        assert_eq!(a.size(Some(0)), 4);
+        assert_eq!(a.size(Some(1)), 2);
+        assert_eq!(a.size(Some(2)), 3);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[3, 0, 1]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[1, 1, 2]), Complex64::new(-5.0, 0.0));
@@ -580,6 +592,9 @@ mod tests {
         assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1, 4]), Complex64::new(-5.0, 0.0));
         a.materialize_transpose();
+
+        assert_eq!(*a.shape.borrow(), vec![3, 4, 2, 5]);
+        assert_eq!(*a.permutation.borrow(), Permutation::one(4));
     }
 
     #[test]
