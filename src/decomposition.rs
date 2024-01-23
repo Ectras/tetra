@@ -10,7 +10,12 @@ pub trait Decomposition {
 }
 
 impl Decomposition for Tensor {
-    /// Implements QR decomposition. Returns (Q,R) where Q is a Hermitian matrix and R is an upper right triangular matrix
+    /// Implements QR decomposition. Returns (Q,R) where Q is a Hermitian matrix and
+    /// R is an upper right triangular matrix.
+    ///
+    /// # Panics
+    /// - Panics if the tensor is not a matrix
+    /// - Panics if the QR decomposition does not converge
     fn qr(&mut self) -> (Tensor, Tensor) {
         assert!(self.ndim() == 2, "Only able to decompose matrices");
         // Get shape of input Tensor
@@ -74,11 +79,11 @@ impl Decomposition for Tensor {
             );
         }
 
-        assert!(info == 0, "QR decomposition did not converge ");
+        assert!(info == 0, "QR decomposition did not converge");
         let mut q_tensor = Self::new(&[m, n]);
         let mut r_tensor = Self::new(&[n, n]);
 
-        // copy out upper right triangular matrix to taco tensor `r`
+        // copy out upper right triangular matrix to tensor `r`
         for j in 0..n {
             for i in 0..min(min_dim as u32, j + 1) {
                 r_tensor.insert(&[i, j], self.get(&[i, j]));
@@ -107,7 +112,11 @@ impl Decomposition for Tensor {
         (q_tensor, r_tensor)
     }
 
-    /// Implements SVD decomposition. Returns (U,S,Vt) where U and Vt are unitary matrices and S is a diagonal matrix of singular values
+    /// Implements SVD decomposition. Returns (U,S,Vt) where U and Vt are unitary
+    /// matrices and S is a diagonal matrix of singular values.
+    ///
+    /// # Panics
+    /// - Panics if the tensor is not a matrix
     fn svd(&mut self) -> (Tensor, Tensor, Tensor) {
         assert!(self.ndim() == 2, "Only able to decompose matrices");
         // Get shape of input Tensor
@@ -212,6 +221,7 @@ mod tests {
     use rand::distributions::{Distribution, Uniform};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
+
     #[test]
     fn test_qr() {
         let mut rng = StdRng::seed_from_u64(23);

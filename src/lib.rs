@@ -15,13 +15,16 @@ use std::iter::zip;
 
 pub mod decomposition;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The data layout of a tensor. For row-major, the last index is the fastest running
+/// one. This does not necessarily correspond to the underlying memory layout, as it
+/// can also be realized through permutating accesses.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Layout {
     RowMajor,
     ColumnMajor,
 }
 
-/// A tensor of arbitrary dimensions containing complex64 values.
+/// A tensor of arbitrary dimensions containing [`Complex64`] values.
 #[derive(Clone, Debug)]
 pub struct Tensor {
     /// The shape of the tensor.
@@ -56,8 +59,8 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor with the given dimensions and the corresponding data. Assumes data is
-    /// column major unless otherwise specified.
+    /// Creates a new tensor with the given dimensions and the corresponding data.
+    /// Assumes data is column-major unless otherwise specified.
     ///
     /// # Panics
     /// - Panics if the dimensions are empty
@@ -69,6 +72,7 @@ impl Tensor {
         let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
         assert_eq!(total_items, data.len());
 
+        // Get the permutation based on the requested layout
         let (permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
             Layout::RowMajor => {
                 let perm_line: Vec<_> = (0..dimensions.len()).rev().collect();
@@ -88,7 +92,8 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor without actual data.
+    /// Creates a new tensor without actual data. It will have the requested
+    /// capacity, meaning it can be written to in unsafe code.
     ///
     /// # Panics
     /// - Panics if the dimensions are empty
@@ -111,7 +116,7 @@ impl Tensor {
     /// Assumes column-major ordering.
     ///
     /// # Panics
-    /// Panics if the coordinates are invalid.
+    /// - Panics if the coordinates are invalid
     fn compute_index(&self, coordinates: &[u32]) -> usize {
         // Borrow the data
         let permutation = self.permutation.borrow();
@@ -171,18 +176,18 @@ impl Tensor {
     /// Returns the size of a single axis or of the whole tensor.
     ///
     /// # Panics
-    /// Panics if the total size is requested and it is larger than u32.
+    /// - Panics if the total size is requested and it is larger than u32
     ///
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
-    /// # use permutation::Permutation as Permutation2;
+    /// # use permutation::Permutation;
     /// let mut t = Tensor::new(&[1, 3, 5]);
     /// assert_eq!(t.size(None), 15);
     /// assert_eq!(t.size(Some(1)), 3);
     /// assert_eq!(t.size(Some(2)), 5);
     /// assert_eq!(t.size(Some(0)), 1);
-    /// t.transpose(&Permutation2::oneline([1, 2, 0]));
+    /// t.transpose(&Permutation::oneline([1, 2, 0]));
     /// assert_eq!(t.size(Some(0)), 5);
     /// assert_eq!(t.size(Some(1)), 1);
     /// assert_eq!(t.size(Some(2)), 3);
@@ -199,7 +204,7 @@ impl Tensor {
         }
     }
 
-    /// Returns the number of dimensions / axes of the tensor.
+    /// Returns the number of dimensions of the tensor.
     ///
     /// # Examples
     /// ```
@@ -214,7 +219,8 @@ impl Tensor {
     }
 
     /// Transposes the tensor axes according to the permutation.
-    /// This method does not modify the data but only the view, hence it's zero cost.
+    /// This method does not modify the data but only the view, hence it is zero
+    /// cost.
     pub fn transpose(&mut self, permutation: &Permutation) {
         self.permutation
             .replace_with(|old_perm| permutation * old_perm);
@@ -237,9 +243,9 @@ impl Tensor {
         transpose_simple(&raw_perm, data, &shape)
     }
 
-    /// Actually transposes the underlying data according to the current axis permutation.
-    /// This should not affect the tensor as observable from the outside (e.g. shape(),
-    /// size(), get() and similar should show no difference).
+    /// Actually transposes the underlying data according to the current axis
+    /// permutation. This should not affect the tensor as observable from the outside
+    /// (e.g. `shape()`, `size()`, `get()` and similar should show no difference).
     fn materialize_transpose(&self) {
         let needs_transpose = *self.permutation.borrow() != Permutation::one(self.ndim());
         if needs_transpose {
@@ -252,28 +258,41 @@ impl Tensor {
         }
     }
 
-    /// Gets a reference to the raw (i.e. flat) vector data. If the tensor has a non-identity permutation,
-    /// this function will transpose the raw data of the tensor before returning the reference. If the raw
-    /// data was shared with other tensors, they will not be affected by the transpose.
+    /// Gets a reference to the raw (i.e. flat) vector data. If the tensor has a
+    /// non-identity permutation, this function will transpose the raw data of the
+    /// tensor before returning the reference. If the raw data was shared with other
+    /// tensors, they will not be affected by the transpose.
     pub fn get_raw_data(&self) -> impl Deref<Target = Vec<Complex64>> + '_ {
         self.materialize_transpose();
         Ref::map(self.data.borrow(), Rc::deref)
     }
 
-    /// Gets a mutable reference to the raw (i.e. flat) vector data. If the tensor has a non-identity permutation,
-    /// this function will transpose the raw data of the tensor before returning the reference. If the raw
-    /// data was shared with other tensors, they will not be affected by the transpose.
-    /// If no transpose is needed and the data is shared, it will be copied to
-    /// ensure that changes through the mutable reference are not reflected on other tensors.
+    /// Gets a mutable reference to the raw (i.e. flat) vector data. If the tensor
+    /// has a non-identity permutation, this function will transpose the raw data of
+    /// the tensor before returning the reference. If the raw data was shared with
+    /// other tensors, they will not be affected by the transpose. If no transpose is
+    /// needed and the data is shared, it will be copied to ensure that changes
+    /// through the mutable reference are not reflected onto other tensors.
     pub fn get_raw_data_mut(&mut self) -> impl DerefMut<Target = Vec<Complex64>> + '_ {
         self.materialize_transpose();
         RefMut::map(self.data.borrow_mut(), Rc::make_mut)
     }
 }
 
-/// Contracts two tensors a and b, writing the result to the out tensor.
+/// Contracts two tensors, returning the resulting tensor.
 /// The indices specify which legs are to be contracted (like einsum notation). So if
 /// two tensors share an index, the corresponding dimension is contracted.
+///
+/// # Examples
+/// The following is equal to a matrix-matrix multiplication
+/// ```
+/// # use tetra::Tensor;
+/// # use tetra::contract;
+/// let a = Tensor::new(&[2, 3]);
+/// let b = Tensor::new(&[3, 4]);
+/// let c = contract(&[0, 2], &[0, 1], &a, &[1, 2], &b);
+/// assert_eq!(c.shape(), vec![2, 4]);
+/// ```
 ///
 /// # Panics
 /// - Panics if contracted sizes don't match
@@ -314,7 +333,8 @@ pub fn contract(
     let mut hyperedge_order = Vec::with_capacity(hyperedges.len());
     let mut hyperedge_size = Vec::with_capacity(hyperedges.len());
 
-    // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for A
+    // Compute permutation, total size of contracted dimensions and total size of
+    // remaining dimensions for A.
     let mut a_contracted = 0;
     let mut a_remaining = 0;
     let mut a_hyperedges = 0;
@@ -346,7 +366,8 @@ pub fn contract(
     a_view.transpose(&Permutation::oneline(a_perm).inverse());
     let a_data = a_view.get_raw_data();
 
-    // Compute permutation, total size of contracted dimensions and total size of remaining dimensions for B
+    // Compute permutation, total size of contracted dimensions and total size of
+    // remaining dimensions for B.
     let mut b_remaining = 0;
     let mut b_contracted_size = 1;
     let mut b_remaining_size = 1;
@@ -406,7 +427,8 @@ pub fn contract(
         remaining.push(*hyperedge_index);
     }
 
-    // Check to allow contraction to a scalar. Only perform this check when c_shape is no longer modified.
+    // Check to allow contraction to a scalar. Only perform this check when c_shape
+    // is no longer modified.
     if c_shape.is_empty() {
         c_chunk_size = 1;
         c_shape.push(1);
