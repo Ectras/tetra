@@ -501,7 +501,7 @@ mod tests {
 
     use super::*;
 
-    fn assert_tensors_equal(left: &mut Tensor, right: &mut Tensor) {
+    fn assert_tensors_equal(left: &Tensor, right: &Tensor) {
         assert_eq!(left.shape(), right.shape());
 
         let left_data = left.get_raw_data();
@@ -547,11 +547,10 @@ mod tests {
                 0.0,
             ));
         }
-        let mut col_tensor =
-            Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
-        let mut row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
+        let col_tensor = Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
+        let row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
 
-        assert_tensors_equal(&mut col_tensor, &mut row_tensor);
+        assert_tensors_equal(&col_tensor, &row_tensor);
     }
 
     #[test]
@@ -788,14 +787,14 @@ mod tests {
             Complex64::new(-0.8540957393017248, -0.7421650204064419),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[2], solution_data, None);
+        let solution = Tensor::new_from_flat(&[2], solution_data, None);
         let b = Tensor::new_from_flat(&[2, 2, 2], b_data, None);
         let c = Tensor::new_from_flat(&[2, 2], c_data, None);
 
         // Contract the tensors
-        let mut out = contract(&[2], &[1, 0, 2], &b, &[0, 1], &c);
+        let out = contract(&[2], &[1, 0, 2], &b, &[0, 1], &c);
 
-        assert_tensors_equal(&mut out, &mut solution);
+        assert_tensors_equal(&out, &solution);
     }
 
     #[test]
@@ -840,13 +839,13 @@ mod tests {
             Complex64::new(0.2617332277917399, 0.7631522656907458),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[3, 3, 1], solution_data, None);
+        let solution = Tensor::new_from_flat(&[3, 3, 1], solution_data, None);
         let b = Tensor::new_from_flat(&[1, 3, 2, 1], b_data, None);
         let c = Tensor::new_from_flat(&[3, 2, 1, 3], c_data, None);
 
-        let mut out = contract(&[1, 4, 0], &[0, 1, 2, 3], &b, &[4, 2, 3, 1], &c);
+        let out = contract(&[1, 4, 0], &[0, 1, 2, 3], &b, &[4, 2, 3, 1], &c);
 
-        assert_tensors_equal(&mut out, &mut solution);
+        assert_tensors_equal(&out, &solution);
     }
 
     #[test]
@@ -900,13 +899,12 @@ mod tests {
             Complex64::new(-0.1232274436570458, 0.4681960350487574),
         ];
 
-        let mut solution =
-            Tensor::new_from_flat(&[2, 2, 2, 2], solution_data, Some(Layout::RowMajor));
+        let solution = Tensor::new_from_flat(&[2, 2, 2, 2], solution_data, Some(Layout::RowMajor));
         let b = Tensor::new_from_flat(&[2, 2, 2, 2], b_data, Some(Layout::RowMajor));
         let c = Tensor::new_from_flat(&[2, 2, 2], c_data, Some(Layout::RowMajor));
 
-        let mut out = contract(&[1, 3, 2, 0], &[1, 3, 0, 2], &b, &[2, 0, 3], &c);
-        assert_tensors_equal(&mut out, &mut solution);
+        let out = contract(&[1, 3, 2, 0], &[1, 3, 0, 2], &b, &[2, 0, 3], &c);
+        assert_tensors_equal(&out, &solution);
     }
 
     #[test]
@@ -1159,15 +1157,15 @@ mod tests {
             Complex64::new(1.1605590114481037, -1.8451851363285414),
         ];
 
-        let mut solution = Tensor::new_from_flat(&[4], solution_data, None);
+        let solution = Tensor::new_from_flat(&[4], solution_data, None);
         let b = Tensor::new_from_flat(&[1, 2, 3, 4], b_data, None);
         let c = Tensor::new_from_flat(&[6, 3, 5, 2], c_data, None);
         let d = Tensor::new_from_flat(&[6, 5, 1], d_data, None);
 
         // Contract the tensors
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], &b, &[5, 2, 4, 1], &c);
-        let mut out2 = contract(&[3], &[5, 4, 0], &d, &[5, 3, 0, 4], &out1);
+        let out2 = contract(&[3], &[5, 4, 0], &d, &[5, 3, 0, 4], &out1);
 
-        assert_tensors_equal(&mut out2, &mut solution);
+        assert_tensors_equal(&out2, &solution);
     }
 }
