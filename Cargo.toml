@@ -5,7 +5,7 @@ edition = "2021"
 description = "Fast complex tensor contractions"
 keywords = ["tensor", "complex", "contraction"]
 categories = ["mathematics", "science"]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 readme = "Readme.md"
 repository = "https://gitlab.lrz.de/quantum-research/tetra"
 
