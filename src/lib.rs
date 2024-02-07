@@ -471,18 +471,11 @@ pub fn contract(
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
     let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
-    let mut c_chunk_size = c_shape.iter().product::<u32>() as usize;
+    let c_chunk_size = c_shape.iter().product::<u32>() as usize;
 
     for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedge_order) {
         c_shape.push(*hyperedge_size);
         remaining.push(*hyperedge_index);
-    }
-
-    // Check to allow contraction to a scalar. Only perform this check when c_shape
-    // is no longer modified.
-    if c_shape.is_empty() {
-        c_chunk_size = 1;
-        c_shape.push(1);
     }
 
     // Create output tensor
@@ -554,12 +547,7 @@ pub fn contract(
     // Find permutation for output tensor
     let remaining_to_sorted = permutation::sort(&remaining);
     let sorted_to_out_indices = permutation::sort(out_indices).inverse();
-    let mut c_perm = &sorted_to_out_indices * &remaining_to_sorted;
-
-    // Check if output is a scalar. If so, replace c_perm with a 1 element vector
-    if c_perm.len() == 0 {
-        c_perm = Permutation::one(1);
-    }
+    let c_perm = &sorted_to_out_indices * &remaining_to_sorted;
 
     // Return transposed output tensor
     out.transpose(&c_perm);
@@ -847,7 +835,7 @@ mod tests {
         let a = contract(&[], &[0], &b, &[0], &c);
 
         // Check result in A
-        assert_eq!(a.get(&[0]), Complex64::new(14.0, 0.0));
+        assert_eq!(a.get(&[]), Complex64::new(14.0, 0.0));
     }
 
     #[test]
