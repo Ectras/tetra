@@ -121,22 +121,27 @@ impl Tensor {
         // Borrow the data
         let permutation = self.permutation.borrow();
         let shape = self.shape.borrow();
+        assert_eq!(coordinates.len(), shape.len());
 
         // Get the unpermuted coordinates
-        let dims = permutation.apply_inv_slice(coordinates);
-
-        // Validate coordinates
-        assert_eq!(dims.len(), shape.len());
-        for (i, &dim_i) in dims.iter().enumerate() {
-            assert!(dim_i < shape[i]);
-        }
+        let coords = permutation.apply_inv_slice(coordinates);
 
         // Compute index
-        let mut idx = dims[dims.len() - 1];
-        for i in (0..dims.len() - 1).rev() {
-            idx = dims[i] + shape[i] * idx;
+        let mut idx = 0;
+        for i in (0..coords.len()).rev() {
+            // Check coordinate
+            assert!(coords[i] < shape[i]);
+
+            // Accumulate index
+            let c: usize = coords[i].try_into().unwrap();
+            let s: usize = shape[i].try_into().unwrap();
+            if i == coords.len() - 1 {
+                idx = c;
+            } else {
+                idx = s * idx + c;
+            }
         }
-        idx.try_into().unwrap()
+        idx
     }
 
     /// Inserts a value at the given position.
