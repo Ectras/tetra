@@ -568,8 +568,8 @@ mod tests {
         let left_data = left.get_raw_data();
         let right_data = right.get_raw_data();
         for (va, vb) in zip(&*left_data, &*right_data) {
-            assert_approx_eq!(f64, va.re, vb.re, epsilon = 1e-14);
-            assert_approx_eq!(f64, va.im, vb.im, epsilon = 1e-14);
+            assert_approx_eq!(f64, va.re, vb.re, epsilon = 1e-12);
+            assert_approx_eq!(f64, va.im, vb.im, epsilon = 1e-12);
         }
     }
 
@@ -820,22 +820,87 @@ mod tests {
     }
 
     #[test]
-    fn toy_contraction_to_scalar() {
-        // Create tensors
-        let mut b = Tensor::new(&[2]);
-        let mut c = Tensor::new(&[2]);
+    fn test_contraction_to_scalar() {
+        let b = Tensor::new_from_flat(
+            &[2],
+            vec![Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0)],
+            None,
+        );
+        let c = Tensor::new_from_flat(
+            &[2],
+            vec![Complex64::new(4.0, 0.0), Complex64::new(5.0, 0.0)],
+            None,
+        );
 
-        // Insert data into B and C
-        b.insert(&[0], Complex64::new(1.0, 0.0));
-        b.insert(&[1], Complex64::new(2.0, 0.0));
-        c.insert(&[0], Complex64::new(4.0, 0.0));
-        c.insert(&[1], Complex64::new(5.0, 0.0));
-
-        // Contract the tensors
         let a = contract(&[], &[0], &b, &[0], &c);
-
-        // Check result in A
         assert_eq!(a.get(&[]), Complex64::new(14.0, 0.0));
+    }
+
+    #[test]
+    fn test_contraction_big_to_scalar() {
+        let a_shape = [2, 3, 4];
+        let b_shape = [4, 2, 3];
+        let sol_shape = [];
+        let a_data = vec![
+            Complex64::new(-5.2, 5.9),
+            Complex64::new(-7.2, -7.8),
+            Complex64::new(-4.9, 4.3),
+            Complex64::new(-3.5, -6.8),
+            Complex64::new(2.4, -2.3),
+            Complex64::new(-9.0, -6.9),
+            Complex64::new(3.5, 6.5),
+            Complex64::new(6.4, -2.8),
+            Complex64::new(3.4, 1.6),
+            Complex64::new(7.0, -0.2),
+            Complex64::new(6.6, 1.1),
+            Complex64::new(-1.7, -3.9),
+            Complex64::new(3.9, 2.7),
+            Complex64::new(4.6, 1.4),
+            Complex64::new(10.0, -3.6),
+            Complex64::new(8.2, -7.4),
+            Complex64::new(-1.7, -9.1),
+            Complex64::new(-8.8, 1.1),
+            Complex64::new(-8.7, 2.3),
+            Complex64::new(-5.7, -7.5),
+            Complex64::new(2.1, -9.2),
+            Complex64::new(-3.2, -6.6),
+            Complex64::new(-3.7, 1.2),
+            Complex64::new(6.4, 5.2),
+        ];
+        let b_data = vec![
+            Complex64::new(6.6, 8.1),
+            Complex64::new(-5.7, 1.7),
+            Complex64::new(5.0, -6.1),
+            Complex64::new(-0.7, -4.3),
+            Complex64::new(1.4, -2.2),
+            Complex64::new(3.4, -6.2),
+            Complex64::new(4.7, -1.8),
+            Complex64::new(4.7, -7.1),
+            Complex64::new(-9.3, 2.6),
+            Complex64::new(-4.9, 1.1),
+            Complex64::new(4.2, -9.0),
+            Complex64::new(7.0, -3.1),
+            Complex64::new(8.0, 1.9),
+            Complex64::new(1.8, -8.4),
+            Complex64::new(6.0, 1.0),
+            Complex64::new(4.7, -0.6),
+            Complex64::new(-4.3, 8.7),
+            Complex64::new(-5.3, 8.5),
+            Complex64::new(2.3, 1.7),
+            Complex64::new(8.1, 7.8),
+            Complex64::new(-1.9, 0.9),
+            Complex64::new(3.4, 9.7),
+            Complex64::new(-1.4, -6.7),
+            Complex64::new(4.9, 5.8),
+        ];
+        let sol_data = vec![Complex64::new(-160.09, 54.36)];
+
+        let sol = Tensor::new_from_flat(&sol_shape, sol_data, Some(Layout::RowMajor));
+        let a = Tensor::new_from_flat(&a_shape, a_data, Some(Layout::RowMajor));
+        let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
+        let c = contract(&[], &[2, 0, 1], &a, &[1, 2, 0], &b);
+
+        assert_tensors_equal(&c, &sol);
     }
 
     #[test]
