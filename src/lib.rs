@@ -38,20 +38,29 @@ pub struct Tensor {
 }
 
 impl Tensor {
-    /// Creates a new tensor of the given dimensions.
+    /// Creates a new `Tensor` of the given dimensions.
     /// The tensor is initialized with zeros.
+    /// For a scalar, pass an empty slice (or use [`Self::new_scalar`]).
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty
+    /// - Panics if any dimension is zero
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// let scalar = Tensor::new(&[]);
+    /// let vector = Tensor::new(&[5]);
+    /// let matrix = Tensor::new(&[3, 4]);
+    /// ```
     #[must_use]
     pub fn new(dimensions: &[u32]) -> Self {
         // Validity checks
-        assert!(!dimensions.is_empty());
+        assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
         let iden = Permutation::one(dimensions.len());
-        let total_items = dimensions.iter().product::<u32>();
-        let zero_data = vec![Complex64::default(); total_items.try_into().unwrap()];
+        let total_items = Tensor::total_items(dimensions);
+        let zero_data = vec![Complex64::default(); total_items];
         Self {
             shape: RefCell::new(dimensions.to_vec()),
             permutation: RefCell::new(iden),
@@ -59,23 +68,38 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor with the given dimensions and the corresponding data.
+    /// Creates a new `Tensor` with the given dimensions and the corresponding data.
     /// Assumes data is column-major unless otherwise specified.
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty
+    /// - Panics if any dimension is zero
     /// - Panics if the length of the data does not match with the dimensions given
+    ///
+    /// # Examples
+    /// ```
+    /// # use num_complex::Complex64;
+    /// # use tetra::Tensor;
+    /// # use tetra::Layout;
+    /// let row_major = Tensor::new_from_flat(&[2, 2], vec![
+    ///     Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
+    ///     Complex64::new(3.0, 0.0), Complex64::new(4.0, 0.0)
+    /// ], Some(Layout::RowMajor));
+    /// let col_major = Tensor::new_from_flat(&[2, 2], vec![
+    ///     Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
+    ///     Complex64::new(2.0, 0.0), Complex64::new(4.0, 0.0)
+    /// ], Some(Layout::ColumnMajor));
+    /// assert_eq!(*row_major.get_raw_data(), *col_major.get_raw_data());
+    /// ```
     #[must_use]
     pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
         // Validity checks
-        assert!(!dimensions.is_empty());
-        let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
-        assert_eq!(total_items, data.len());
+        assert!(dimensions.iter().all(|&x| x > 0));
+        assert_eq!(Tensor::total_items(dimensions), data.len());
 
         // Get the permutation based on the requested layout
         let (permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
             Layout::RowMajor => {
-                let perm_line: Vec<_> = (0..dimensions.len()).rev().collect();
+                let perm_line = (0..dimensions.len()).rev().collect::<Vec<_>>();
                 let perm = Permutation::oneline(perm_line);
                 let mut dims = dimensions.to_vec();
                 dims.reverse();
@@ -92,24 +116,38 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor without actual data. It will have the requested
+    /// Creates a new `Tensor` with a single scalar value.
+    #[must_use]
+    pub fn new_scalar(value: Complex64) -> Self {
+        Self::new_from_flat(&[], vec![value], None)
+    }
+
+    /// Creates a new `Tensor` without actual data. It will have the requested
     /// capacity, meaning it can be written to in unsafe code.
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty
+    /// - Panics if any dimension is zero
     fn new_uninitialized(dimensions: &[u32]) -> Self {
         // Validity checks
-        assert!(!dimensions.is_empty());
+        assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
         let iden = Permutation::one(dimensions.len());
-        let total_items = dimensions.iter().product::<u32>();
-        let uninitialized = Vec::with_capacity(total_items.try_into().unwrap());
+        let total_items = Tensor::total_items(dimensions);
+        let uninitialized = Vec::with_capacity(total_items);
         Self {
             shape: RefCell::new(dimensions.to_vec()),
             permutation: RefCell::new(iden),
             data: RefCell::new(Rc::new(uninitialized)),
         }
+    }
+
+    /// Computes the total number of items specified by `dimensions`.
+    fn total_items(dimensions: &[u32]) -> usize {
+        dimensions
+            .iter()
+            .map(|&x| TryInto::<usize>::try_into(x).unwrap())
+            .product()
     }
 
     /// Computes the flat index given the accessed coordinates.
@@ -297,6 +335,14 @@ impl Tensor {
 /// let b = Tensor::new(&[3, 4]);
 /// let c = contract(&[0, 2], &[0, 1], &a, &[1, 2], &b);
 /// assert_eq!(c.shape(), vec![2, 4]);
+/// ```
+/// The following is equal to a scalar product of two vectors
+/// ```
+/// # use tetra::Tensor;
+/// # use tetra::contract;
+/// let a = Tensor::new(&[3]);
+/// let b = Tensor::new(&[3]);
+/// let c = contract(&[], &[0], &a, &[0], &b);
 /// ```
 ///
 /// # Panics
@@ -540,6 +586,12 @@ mod tests {
     }
 
     #[test]
+    fn test_index_computation_scalar() {
+        let t = Tensor::new(&[]);
+        assert_eq!(t.compute_index(&[]), 0);
+    }
+
+    #[test]
     fn test_index_computation() {
         let t = Tensor::new(&[2, 4, 5, 1]);
         assert_eq!(t.compute_index(&[0, 0, 0, 0]), 0);
@@ -578,6 +630,21 @@ mod tests {
         let row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
 
         assert_tensors_equal(&col_tensor, &row_tensor);
+    }
+
+    #[test]
+    fn test_scalar_get_set() {
+        let mut t = Tensor::new(&[]);
+        t.insert(&[], Complex64::new(1.0, 2.0));
+        assert_eq!(t.get(&[]), Complex64::new(1.0, 2.0));
+    }
+
+    #[test]
+    fn test_scalar_shape() {
+        let t = Tensor::new(&[]);
+        assert_eq!(t.shape(), vec![]);
+        assert_eq!(t.size(None), 1);
+        assert_eq!(t.ndim(), 0);
     }
 
     #[test]
@@ -659,6 +726,13 @@ mod tests {
     }
 
     #[test]
+    fn test_get_raw_data_scalar() {
+        let val = Complex64::new(2.0, -3.0);
+        let a = Tensor::new_scalar(val);
+        assert_eq!(*a.get_raw_data(), vec![val]);
+    }
+
+    #[test]
     fn test_get_mut_raw_data() {
         let mut a = Tensor::new(&[2, 3, 4]);
         a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
@@ -699,6 +773,17 @@ mod tests {
         assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
         assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
         assert_eq!(*b_data.get(15).unwrap(), Complex64::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn test_get_mut_raw_data_scalar() {
+        let val = Complex64::new(2.0, -3.0);
+        let mut a = Tensor::new(&[]);
+        {
+            let mut a_data = a.get_raw_data_mut();
+            a_data[0] = val;
+        }
+        assert_eq!(a.get(&[]), val);
     }
 
     #[test]
