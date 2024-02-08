@@ -59,7 +59,7 @@ impl Tensor {
 
         // Construct tensor
         let iden = Permutation::one(dimensions.len());
-        let total_items = Tensor::total_items(dimensions);
+        let total_items = Self::total_items(dimensions);
         let zero_data = vec![Complex64::default(); total_items];
         Self {
             shape: RefCell::new(dimensions.to_vec()),
@@ -94,7 +94,7 @@ impl Tensor {
     pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
-        assert_eq!(Tensor::total_items(dimensions), data.len());
+        assert_eq!(Self::total_items(dimensions), data.len());
 
         // Get the permutation based on the requested layout
         let (permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
@@ -133,7 +133,7 @@ impl Tensor {
 
         // Construct tensor
         let iden = Permutation::one(dimensions.len());
-        let total_items = Tensor::total_items(dimensions);
+        let total_items = Self::total_items(dimensions);
         let uninitialized = Vec::with_capacity(total_items);
         Self {
             shape: RefCell::new(dimensions.to_vec()),
