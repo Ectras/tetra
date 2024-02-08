@@ -833,14 +833,15 @@ mod tests {
         );
 
         let a = contract(&[], &[0], &b, &[0], &c);
-        assert_eq!(a.get(&[]), Complex64::new(14.0, 0.0));
+
+        let sol = Tensor::new_scalar(Complex64::new(14.0, 0.0));
+        assert_tensors_equal(&a, &sol);
     }
 
     #[test]
     fn test_contraction_big_to_scalar() {
         let a_shape = [2, 3, 4];
         let b_shape = [4, 2, 3];
-        let sol_shape = [];
         let a_data = vec![
             Complex64::new(-5.2, 5.9),
             Complex64::new(-7.2, -7.8),
@@ -893,9 +894,8 @@ mod tests {
             Complex64::new(-1.4, -6.7),
             Complex64::new(4.9, 5.8),
         ];
-        let sol_data = vec![Complex64::new(-160.09, 54.36)];
 
-        let sol = Tensor::new_from_flat(&sol_shape, sol_data, Some(Layout::RowMajor));
+        let sol = Tensor::new_scalar(Complex64::new(-160.09, 54.36));
         let a = Tensor::new_from_flat(&a_shape, a_data, Some(Layout::RowMajor));
         let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
         let c = contract(&[], &[2, 0, 1], &a, &[1, 2, 0], &b);
