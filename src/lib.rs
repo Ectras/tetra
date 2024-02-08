@@ -904,6 +904,38 @@ mod tests {
     }
 
     #[test]
+    fn test_contraction_scalars_only() {
+        let a = Tensor::new_scalar(Complex64::new(5.0, 3.0));
+        let b = Tensor::new_scalar(Complex64::new(-2.0, 4.0));
+        let c = contract(&[], &[], &a, &[], &b);
+
+        let sol = Tensor::new_scalar(Complex64::new(-22.0, 14.0));
+        assert_tensors_equal(&c, &sol);
+    }
+
+    #[test]
+    fn test_contraction_with_scalar() {
+        let a_data = vec![
+            Complex64::new(1.0, 1.0),
+            Complex64::new(-2.0, 0.0),
+            Complex64::new(-3.0, -1.0),
+            Complex64::new(0.0, 5.0),
+        ];
+        let sol_data = vec![
+            Complex64::new(3.0, 1.0),
+            Complex64::new(-4.0, 2.0),
+            Complex64::new(-7.0, 1.0),
+            Complex64::new(5.0, 10.0),
+        ];
+        let a = Tensor::new_from_flat(&[2, 2], a_data, None);
+        let b = Tensor::new_scalar(Complex64::new(2.0, -1.0));
+
+        let sol = Tensor::new_from_flat(&[2, 2], sol_data, None);
+        let c = contract(&[0, 1], &[0, 1], &a, &[], &b);
+        assert_tensors_equal(&c, &sol);
+    }
+
+    #[test]
     fn toy_contraction_transposed() {
         // Create tensors
         let mut b = Tensor::new(&[2, 3, 4]);
