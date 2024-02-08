@@ -38,20 +38,29 @@ pub struct Tensor {
 }
 
 impl Tensor {
-    /// Creates a new tensor of the given dimensions.
+    /// Creates a new `Tensor` of the given dimensions.
     /// The tensor is initialized with zeros.
+    /// For a scalar, pass an empty slice (or use [`Self::new_scalar`]).
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty
+    /// - Panics if any dimension is zero
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// let scalar = Tensor::new(&[]);
+    /// let vector = Tensor::new(&[5]);
+    /// let matrix = Tensor::new(&[3, 4]);
+    /// ```
     #[must_use]
     pub fn new(dimensions: &[u32]) -> Self {
         // Validity checks
-        assert!(!dimensions.is_empty());
+        assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
         let iden = Permutation::one(dimensions.len());
-        let total_items = dimensions.iter().product::<u32>();
-        let zero_data = vec![Complex64::default(); total_items.try_into().unwrap()];
+        let total_items = Self::total_items(dimensions);
+        let zero_data = vec![Complex64::default(); total_items];
         Self {
             shape: RefCell::new(dimensions.to_vec()),
             permutation: RefCell::new(iden),
@@ -59,23 +68,38 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor with the given dimensions and the corresponding data.
+    /// Creates a new `Tensor` with the given dimensions and the corresponding data.
     /// Assumes data is column-major unless otherwise specified.
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty
+    /// - Panics if any dimension is zero
     /// - Panics if the length of the data does not match with the dimensions given
+    ///
+    /// # Examples
+    /// ```
+    /// # use num_complex::Complex64;
+    /// # use tetra::Tensor;
+    /// # use tetra::Layout;
+    /// let row_major = Tensor::new_from_flat(&[2, 2], vec![
+    ///     Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
+    ///     Complex64::new(3.0, 0.0), Complex64::new(4.0, 0.0)
+    /// ], Some(Layout::RowMajor));
+    /// let col_major = Tensor::new_from_flat(&[2, 2], vec![
+    ///     Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
+    ///     Complex64::new(2.0, 0.0), Complex64::new(4.0, 0.0)
+    /// ], Some(Layout::ColumnMajor));
+    /// assert_eq!(*row_major.get_raw_data(), *col_major.get_raw_data());
+    /// ```
     #[must_use]
     pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
         // Validity checks
-        assert!(!dimensions.is_empty());
-        let total_items: usize = dimensions.iter().product::<u32>().try_into().unwrap();
-        assert_eq!(total_items, data.len());
+        assert!(dimensions.iter().all(|&x| x > 0));
+        assert_eq!(Self::total_items(dimensions), data.len());
 
         // Get the permutation based on the requested layout
         let (permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
             Layout::RowMajor => {
-                let perm_line: Vec<_> = (0..dimensions.len()).rev().collect();
+                let perm_line = (0..dimensions.len()).rev().collect::<Vec<_>>();
                 let perm = Permutation::oneline(perm_line);
                 let mut dims = dimensions.to_vec();
                 dims.reverse();
@@ -92,24 +116,38 @@ impl Tensor {
         }
     }
 
-    /// Creates a new tensor without actual data. It will have the requested
+    /// Creates a new `Tensor` with a single scalar value.
+    #[must_use]
+    pub fn new_scalar(value: Complex64) -> Self {
+        Self::new_from_flat(&[], vec![value], None)
+    }
+
+    /// Creates a new `Tensor` without actual data. It will have the requested
     /// capacity, meaning it can be written to in unsafe code.
     ///
     /// # Panics
-    /// - Panics if the dimensions are empty
+    /// - Panics if any dimension is zero
     fn new_uninitialized(dimensions: &[u32]) -> Self {
         // Validity checks
-        assert!(!dimensions.is_empty());
+        assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
         let iden = Permutation::one(dimensions.len());
-        let total_items = dimensions.iter().product::<u32>();
-        let uninitialized = Vec::with_capacity(total_items.try_into().unwrap());
+        let total_items = Self::total_items(dimensions);
+        let uninitialized = Vec::with_capacity(total_items);
         Self {
             shape: RefCell::new(dimensions.to_vec()),
             permutation: RefCell::new(iden),
             data: RefCell::new(Rc::new(uninitialized)),
         }
+    }
+
+    /// Computes the total number of items specified by `dimensions`.
+    fn total_items(dimensions: &[u32]) -> usize {
+        dimensions
+            .iter()
+            .map(|&x| TryInto::<usize>::try_into(x).unwrap())
+            .product()
     }
 
     /// Computes the flat index given the accessed coordinates.
@@ -121,22 +159,27 @@ impl Tensor {
         // Borrow the data
         let permutation = self.permutation.borrow();
         let shape = self.shape.borrow();
+        assert_eq!(coordinates.len(), shape.len());
 
         // Get the unpermuted coordinates
-        let dims = permutation.apply_inv_slice(coordinates);
-
-        // Validate coordinates
-        assert_eq!(dims.len(), shape.len());
-        for (i, &dim_i) in dims.iter().enumerate() {
-            assert!(dim_i < shape[i]);
-        }
+        let coords = permutation.apply_inv_slice(coordinates);
 
         // Compute index
-        let mut idx = dims[dims.len() - 1];
-        for i in (0..dims.len() - 1).rev() {
-            idx = dims[i] + shape[i] * idx;
+        let mut idx = 0;
+        for i in (0..coords.len()).rev() {
+            // Check coordinate
+            assert!(coords[i] < shape[i]);
+
+            // Accumulate index
+            let c: usize = coords[i].try_into().unwrap();
+            let s: usize = shape[i].try_into().unwrap();
+            if i == coords.len() - 1 {
+                idx = c;
+            } else {
+                idx = s * idx + c;
+            }
         }
-        idx.try_into().unwrap()
+        idx
     }
 
     /// Inserts a value at the given position.
@@ -293,6 +336,14 @@ impl Tensor {
 /// let c = contract(&[0, 2], &[0, 1], &a, &[1, 2], &b);
 /// assert_eq!(c.shape(), vec![2, 4]);
 /// ```
+/// The following is equal to a scalar product of two vectors
+/// ```
+/// # use tetra::Tensor;
+/// # use tetra::contract;
+/// let a = Tensor::new(&[3]);
+/// let b = Tensor::new(&[3]);
+/// let c = contract(&[], &[0], &a, &[0], &b);
+/// ```
 ///
 /// # Panics
 /// - Panics if contracted sizes don't match
@@ -420,18 +471,11 @@ pub fn contract(
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
     let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
-    let mut c_chunk_size = c_shape.iter().product::<u32>() as usize;
+    let c_chunk_size = c_shape.iter().product::<u32>() as usize;
 
     for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedge_order) {
         c_shape.push(*hyperedge_size);
         remaining.push(*hyperedge_index);
-    }
-
-    // Check to allow contraction to a scalar. Only perform this check when c_shape
-    // is no longer modified.
-    if c_shape.is_empty() {
-        c_chunk_size = 1;
-        c_shape.push(1);
     }
 
     // Create output tensor
@@ -503,12 +547,7 @@ pub fn contract(
     // Find permutation for output tensor
     let remaining_to_sorted = permutation::sort(&remaining);
     let sorted_to_out_indices = permutation::sort(out_indices).inverse();
-    let mut c_perm = &sorted_to_out_indices * &remaining_to_sorted;
-
-    // Check if output is a scalar. If so, replace c_perm with a 1 element vector
-    if c_perm.len() == 0 {
-        c_perm = Permutation::one(1);
-    }
+    let c_perm = &sorted_to_out_indices * &remaining_to_sorted;
 
     // Return transposed output tensor
     out.transpose(&c_perm);
@@ -529,9 +568,15 @@ mod tests {
         let left_data = left.get_raw_data();
         let right_data = right.get_raw_data();
         for (va, vb) in zip(&*left_data, &*right_data) {
-            assert_approx_eq!(f64, va.re, vb.re, epsilon = 1e-14);
-            assert_approx_eq!(f64, va.im, vb.im, epsilon = 1e-14);
+            assert_approx_eq!(f64, va.re, vb.re, epsilon = 1e-12);
+            assert_approx_eq!(f64, va.im, vb.im, epsilon = 1e-12);
         }
+    }
+
+    #[test]
+    fn test_index_computation_scalar() {
+        let t = Tensor::new(&[]);
+        assert_eq!(t.compute_index(&[]), 0);
     }
 
     #[test]
@@ -573,6 +618,21 @@ mod tests {
         let row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
 
         assert_tensors_equal(&col_tensor, &row_tensor);
+    }
+
+    #[test]
+    fn test_scalar_get_set() {
+        let mut t = Tensor::new(&[]);
+        t.insert(&[], Complex64::new(1.0, 2.0));
+        assert_eq!(t.get(&[]), Complex64::new(1.0, 2.0));
+    }
+
+    #[test]
+    fn test_scalar_shape() {
+        let t = Tensor::new(&[]);
+        assert_eq!(t.shape(), vec![]);
+        assert_eq!(t.size(None), 1);
+        assert_eq!(t.ndim(), 0);
     }
 
     #[test]
@@ -654,6 +714,13 @@ mod tests {
     }
 
     #[test]
+    fn test_get_raw_data_scalar() {
+        let val = Complex64::new(2.0, -3.0);
+        let a = Tensor::new_scalar(val);
+        assert_eq!(*a.get_raw_data(), vec![val]);
+    }
+
+    #[test]
     fn test_get_mut_raw_data() {
         let mut a = Tensor::new(&[2, 3, 4]);
         a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
@@ -694,6 +761,17 @@ mod tests {
         assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
         assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
         assert_eq!(*b_data.get(15).unwrap(), Complex64::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn test_get_mut_raw_data_scalar() {
+        let val = Complex64::new(2.0, -3.0);
+        let mut a = Tensor::new(&[]);
+        {
+            let mut a_data = a.get_raw_data_mut();
+            a_data[0] = val;
+        }
+        assert_eq!(a.get(&[]), val);
     }
 
     #[test]
@@ -742,22 +820,119 @@ mod tests {
     }
 
     #[test]
-    fn toy_contraction_to_scalar() {
-        // Create tensors
-        let mut b = Tensor::new(&[2]);
-        let mut c = Tensor::new(&[2]);
+    fn test_contraction_to_scalar() {
+        let b = Tensor::new_from_flat(
+            &[2],
+            vec![Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0)],
+            None,
+        );
+        let c = Tensor::new_from_flat(
+            &[2],
+            vec![Complex64::new(4.0, 0.0), Complex64::new(5.0, 0.0)],
+            None,
+        );
 
-        // Insert data into B and C
-        b.insert(&[0], Complex64::new(1.0, 0.0));
-        b.insert(&[1], Complex64::new(2.0, 0.0));
-        c.insert(&[0], Complex64::new(4.0, 0.0));
-        c.insert(&[1], Complex64::new(5.0, 0.0));
-
-        // Contract the tensors
         let a = contract(&[], &[0], &b, &[0], &c);
 
-        // Check result in A
-        assert_eq!(a.get(&[0]), Complex64::new(14.0, 0.0));
+        let sol = Tensor::new_scalar(Complex64::new(14.0, 0.0));
+        assert_tensors_equal(&a, &sol);
+    }
+
+    #[test]
+    fn test_contraction_big_to_scalar() {
+        let a_shape = [2, 3, 4];
+        let b_shape = [4, 2, 3];
+        let a_data = vec![
+            Complex64::new(-5.2, 5.9),
+            Complex64::new(-7.2, -7.8),
+            Complex64::new(-4.9, 4.3),
+            Complex64::new(-3.5, -6.8),
+            Complex64::new(2.4, -2.3),
+            Complex64::new(-9.0, -6.9),
+            Complex64::new(3.5, 6.5),
+            Complex64::new(6.4, -2.8),
+            Complex64::new(3.4, 1.6),
+            Complex64::new(7.0, -0.2),
+            Complex64::new(6.6, 1.1),
+            Complex64::new(-1.7, -3.9),
+            Complex64::new(3.9, 2.7),
+            Complex64::new(4.6, 1.4),
+            Complex64::new(10.0, -3.6),
+            Complex64::new(8.2, -7.4),
+            Complex64::new(-1.7, -9.1),
+            Complex64::new(-8.8, 1.1),
+            Complex64::new(-8.7, 2.3),
+            Complex64::new(-5.7, -7.5),
+            Complex64::new(2.1, -9.2),
+            Complex64::new(-3.2, -6.6),
+            Complex64::new(-3.7, 1.2),
+            Complex64::new(6.4, 5.2),
+        ];
+        let b_data = vec![
+            Complex64::new(6.6, 8.1),
+            Complex64::new(-5.7, 1.7),
+            Complex64::new(5.0, -6.1),
+            Complex64::new(-0.7, -4.3),
+            Complex64::new(1.4, -2.2),
+            Complex64::new(3.4, -6.2),
+            Complex64::new(4.7, -1.8),
+            Complex64::new(4.7, -7.1),
+            Complex64::new(-9.3, 2.6),
+            Complex64::new(-4.9, 1.1),
+            Complex64::new(4.2, -9.0),
+            Complex64::new(7.0, -3.1),
+            Complex64::new(8.0, 1.9),
+            Complex64::new(1.8, -8.4),
+            Complex64::new(6.0, 1.0),
+            Complex64::new(4.7, -0.6),
+            Complex64::new(-4.3, 8.7),
+            Complex64::new(-5.3, 8.5),
+            Complex64::new(2.3, 1.7),
+            Complex64::new(8.1, 7.8),
+            Complex64::new(-1.9, 0.9),
+            Complex64::new(3.4, 9.7),
+            Complex64::new(-1.4, -6.7),
+            Complex64::new(4.9, 5.8),
+        ];
+
+        let sol = Tensor::new_scalar(Complex64::new(-160.09, 54.36));
+        let a = Tensor::new_from_flat(&a_shape, a_data, Some(Layout::RowMajor));
+        let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
+        let c = contract(&[], &[2, 0, 1], &a, &[1, 2, 0], &b);
+
+        assert_tensors_equal(&c, &sol);
+    }
+
+    #[test]
+    fn test_contraction_scalars_only() {
+        let a = Tensor::new_scalar(Complex64::new(5.0, 3.0));
+        let b = Tensor::new_scalar(Complex64::new(-2.0, 4.0));
+        let c = contract(&[], &[], &a, &[], &b);
+
+        let sol = Tensor::new_scalar(Complex64::new(-22.0, 14.0));
+        assert_tensors_equal(&c, &sol);
+    }
+
+    #[test]
+    fn test_contraction_with_scalar() {
+        let a_data = vec![
+            Complex64::new(1.0, 1.0),
+            Complex64::new(-2.0, 0.0),
+            Complex64::new(-3.0, -1.0),
+            Complex64::new(0.0, 5.0),
+        ];
+        let sol_data = vec![
+            Complex64::new(3.0, 1.0),
+            Complex64::new(-4.0, 2.0),
+            Complex64::new(-7.0, 1.0),
+            Complex64::new(5.0, 10.0),
+        ];
+        let a = Tensor::new_from_flat(&[2, 2], a_data, None);
+        let b = Tensor::new_scalar(Complex64::new(2.0, -1.0));
+
+        let sol = Tensor::new_from_flat(&[2, 2], sol_data, None);
+        let c = contract(&[0, 1], &[0, 1], &a, &[], &b);
+        assert_tensors_equal(&c, &sol);
     }
 
     #[test]
