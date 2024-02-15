@@ -7,7 +7,7 @@ use std::{
 
 extern crate openblas_src;
 use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
-use hptt_sys::transpose_simple;
+use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
