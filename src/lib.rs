@@ -13,6 +13,9 @@ use num_complex::Complex64;
 use permutation::Permutation;
 use std::iter::zip;
 
+#[cfg(feature = "serde")]
+pub mod serde;
+
 pub mod decomposition;
 
 /// The data layout of a tensor. For row-major, the last index is the fastest running
