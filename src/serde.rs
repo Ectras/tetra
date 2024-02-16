@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use num_complex::Complex64;
 use permutation::Permutation;
@@ -12,23 +12,37 @@ use crate::Tensor;
 
 const FIELDS: &[&str] = &["shape", "permutation", "data"];
 
+/// Converts a permutation to a vector that can be serialized.
+/// The vector is in zero-based oneline notation (see [`Permutation::oneline`]).
+fn permutation_to_raw<T>(perm: T) -> Vec<usize>
+where
+    T: Deref<Target = Permutation>,
+{
+    let normalized = (*perm).clone().normalize(false);
+    (0..normalized.len())
+        .map(|idx| normalized.apply_idx(idx))
+        .collect()
+}
+
+/// Converts a vector in zero-based oneline notation to a permutation.
+fn raw_to_permutation(raw: &[usize]) -> Permutation {
+    Permutation::oneline(raw.to_vec())
+}
+
 // Adapted from https://serde.rs/impl-serialize.html
 impl Serialize for Tensor {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        // Get permutation into raw form
-        let mut perm = self.permutation.borrow_mut();
-        let mut numbers = (0..perm.len()).collect::<Vec<_>>();
-        perm.apply_slice_in_place(&mut numbers);
-
+        let shape = self.shape.borrow();
+        let permutation = self.permutation.borrow();
         let data = self.data.borrow();
 
         // Serialize tensor
         let mut state = serializer.serialize_struct("Tensor", FIELDS.len())?;
-        state.serialize_field(FIELDS[0], &self.shape)?;
-        state.serialize_field(FIELDS[1], &numbers)?;
+        state.serialize_field(FIELDS[0], &shape.as_slice())?;
+        state.serialize_field(FIELDS[1], &permutation_to_raw(permutation))?;
         state.serialize_field(FIELDS[2], data.as_slice())?;
         state.end()
     }
@@ -99,9 +113,12 @@ impl<'de> Deserialize<'de> for Tensor {
                 let data: Vec<Complex64> = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+
+                // Create the tensor
+                let permutation = raw_to_permutation(&permutation);
                 Ok(Tensor {
                     shape: RefCell::new(shape),
-                    permutation: RefCell::new(Permutation::oneline(permutation)),
+                    permutation: RefCell::new(permutation),
                     data: RefCell::new(Rc::new(data)),
                 })
             }
@@ -135,13 +152,18 @@ impl<'de> Deserialize<'de> for Tensor {
                         }
                     }
                 }
+
+                // Unpack the fields
                 let shape = shape.ok_or_else(|| de::Error::missing_field("shape"))?;
                 let permutation: Vec<usize> =
                     permutation.ok_or_else(|| de::Error::missing_field("permutation"))?;
                 let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
+
+                // Create the tensor
+                let permutation = raw_to_permutation(&permutation);
                 Ok(Tensor {
                     shape: RefCell::new(shape),
-                    permutation: RefCell::new(Permutation::oneline(permutation)),
+                    permutation: RefCell::new(permutation),
                     data: RefCell::new(Rc::new(data)),
                 })
             }
@@ -154,10 +176,13 @@ impl<'de> Deserialize<'de> for Tensor {
 #[cfg(test)]
 mod tests {
     use num_complex::Complex64;
+    use permutation::Permutation;
     use serde::Serialize;
 
     use crate::{Layout, Tensor};
     use serde_test::{assert_tokens, Token};
+
+    use super::{permutation_to_raw, raw_to_permutation};
 
     #[derive(Debug)]
     struct TensorEqWrapper(Tensor);
@@ -186,6 +211,16 @@ mod tests {
         {
             Ok(TensorEqWrapper(Tensor::deserialize(deserializer)?))
         }
+    }
+
+    #[test]
+    fn test_permutation_convert() {
+        let p1 = Permutation::oneline(vec![2, 0, 1, 3]);
+        let p2 = Permutation::oneline(vec![1, 2, 0, 3]).inverse();
+        let p3 = &p1 * &p2;
+        assert_eq!(raw_to_permutation(&permutation_to_raw(&p1)), p1);
+        assert_eq!(raw_to_permutation(&permutation_to_raw(&p2)), p2);
+        assert_eq!(raw_to_permutation(&permutation_to_raw(&p3)), p3);
     }
 
     #[test]
