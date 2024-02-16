@@ -48,7 +48,7 @@ impl Serialize for Tensor {
     }
 }
 
-// Adapted from https://serde.rs/impl-deserialize.html
+// Adapted from https://serde.rs/deserialize-struct.html
 impl<'de> Deserialize<'de> for Tensor {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
