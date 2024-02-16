@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use num_complex::Complex64;
 use permutation::Permutation;
@@ -14,9 +14,7 @@ const FIELDS: &[&str] = &["shape", "permutation", "data"];
 
 /// Converts a permutation to a vector that can be serialized.
 /// The vector is in zero-based oneline notation (see [`Permutation::oneline`]).
-fn permutation_to_raw<T>(perm: T) -> Vec<usize>
-where
-    T: Deref<Target = Permutation>,
+fn permutation_to_raw(perm: &Permutation) -> Vec<usize>
 {
     let normalized = (*perm).clone().normalize(false);
     (0..normalized.len())
@@ -42,7 +40,7 @@ impl Serialize for Tensor {
         // Serialize tensor
         let mut state = serializer.serialize_struct("Tensor", FIELDS.len())?;
         state.serialize_field(FIELDS[0], &shape.as_slice())?;
-        state.serialize_field(FIELDS[1], &permutation_to_raw(permutation))?;
+        state.serialize_field(FIELDS[1], &permutation_to_raw(&permutation))?;
         state.serialize_field(FIELDS[2], data.as_slice())?;
         state.end()
     }
