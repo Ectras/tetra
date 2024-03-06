@@ -214,8 +214,7 @@ impl Decomposition for Tensor {
 #[cfg(test)]
 mod tests {
     use crate::decomposition::Decomposition;
-    use crate::{contract, Tensor};
-    use float_cmp::assert_approx_eq;
+    use crate::{all_close, contract, Tensor};
     use itertools::Itertools;
     use num_complex::Complex64;
     use rand::distributions::{Distribution, Uniform};
@@ -242,10 +241,8 @@ mod tests {
 
         let (q, r) = a.qr();
         let out = contract(&[0, 2], &[0, 1], &q, &[1, 2], &r);
-        for dim in t_ranges {
-            assert_approx_eq!(f64, sol.get(&dim).re, out.get(&dim).re, epsilon = 1e-14);
-            assert_approx_eq!(f64, sol.get(&dim).im, out.get(&dim).im, epsilon = 1e-14);
-        }
+
+        assert!(all_close(&out, &sol, 1e-14));
     }
 
     #[test]
@@ -269,9 +266,7 @@ mod tests {
         let (u, s, vt) = a.svd();
         let us = contract(&[0, 2], &[0, 1], &u, &[1, 2], &s);
         let out = contract(&[0, 2], &[0, 1], &us, &[1, 2], &vt);
-        for dim in t_ranges {
-            assert_approx_eq!(f64, sol.get(&dim).re, out.get(&dim).re, epsilon = 1e-14);
-            assert_approx_eq!(f64, sol.get(&dim).im, out.get(&dim).im, epsilon = 1e-14);
-        }
+
+        assert!(all_close(&out, &sol, 1e-14));
     }
 }

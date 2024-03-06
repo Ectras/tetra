@@ -557,24 +557,46 @@ pub fn contract(
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use std::iter::zip;
+/// Compares two floating point numbers for approximate equality.
+#[must_use]
+fn compare_float(a: f64, b: f64, epsilon: f64) -> bool {
+    a == b || ((a - b).abs() <= epsilon)
+}
 
-    use float_cmp::assert_approx_eq;
+/// Compares two complex numbers for approximate equality.
+#[must_use]
+fn compare_complex(a: Complex64, b: Complex64, epsilon: f64) -> bool {
+    compare_float(a.re, b.re, epsilon) && compare_float(a.im, b.im, epsilon)
+}
 
-    use super::*;
+/// Compares two tensors for approximate equality.
+/// The tensors are considered equal if their shapes are equal and all their elements
+/// are approximately equal.
+#[must_use]
+pub fn all_close(a: &Tensor, b: &Tensor, epsilon: f64) -> bool {
+    // Compare the shapes first
+    if a.shape() != b.shape() {
+        return false;
+    }
 
-    fn assert_tensors_equal(left: &Tensor, right: &Tensor) {
-        assert_eq!(left.shape(), right.shape());
+    // Get the permuted data
+    // TODO: Should we instead access only inidividual elements to avoid this?
+    let a_data = a.get_raw_data();
+    let b_data = b.get_raw_data();
 
-        let left_data = left.get_raw_data();
-        let right_data = right.get_raw_data();
-        for (va, vb) in zip(&*left_data, &*right_data) {
-            assert_approx_eq!(f64, va.re, vb.re, epsilon = 1e-12);
-            assert_approx_eq!(f64, va.im, vb.im, epsilon = 1e-12);
+    // Compare the elements
+    for (va, vb) in zip(&*a_data, &*b_data) {
+        if !compare_complex(*va, *vb, epsilon) {
+            return false;
         }
     }
+
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_index_computation_scalar() {
@@ -620,7 +642,7 @@ mod tests {
         let col_tensor = Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
         let row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
 
-        assert_tensors_equal(&col_tensor, &row_tensor);
+        assert!(all_close(&col_tensor, &row_tensor, 1e-12));
     }
 
     #[test]
@@ -633,7 +655,7 @@ mod tests {
     #[test]
     fn test_scalar_shape() {
         let t = Tensor::new(&[]);
-        assert_eq!(t.shape(), vec![]);
+        assert_eq!(t.shape(), Vec::<u32>::new());
         assert_eq!(t.size(None), 1);
         assert_eq!(t.ndim(), 0);
     }
@@ -838,7 +860,7 @@ mod tests {
         let a = contract(&[], &[0], &b, &[0], &c);
 
         let sol = Tensor::new_scalar(Complex64::new(14.0, 0.0));
-        assert_tensors_equal(&a, &sol);
+        assert!(all_close(&a, &sol, 1e-12));
     }
 
     #[test]
@@ -903,7 +925,7 @@ mod tests {
         let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
         let c = contract(&[], &[2, 0, 1], &a, &[1, 2, 0], &b);
 
-        assert_tensors_equal(&c, &sol);
+        assert!(all_close(&c, &sol, 1e-12));
     }
 
     #[test]
@@ -913,7 +935,7 @@ mod tests {
         let c = contract(&[], &[], &a, &[], &b);
 
         let sol = Tensor::new_scalar(Complex64::new(-22.0, 14.0));
-        assert_tensors_equal(&c, &sol);
+        assert!(all_close(&c, &sol, 1e-12));
     }
 
     #[test]
@@ -935,7 +957,7 @@ mod tests {
 
         let sol = Tensor::new_from_flat(&[2, 2], sol_data, None);
         let c = contract(&[0, 1], &[0, 1], &a, &[], &b);
-        assert_tensors_equal(&c, &sol);
+        assert!(all_close(&c, &sol, 1e-12));
     }
 
     #[test]
@@ -994,7 +1016,7 @@ mod tests {
         // Contract the tensors
         let out = contract(&[2], &[1, 0, 2], &b, &[0, 1], &c);
 
-        assert_tensors_equal(&out, &solution);
+        assert!(all_close(&out, &solution, 1e-12));
     }
 
     #[test]
@@ -1045,7 +1067,7 @@ mod tests {
 
         let out = contract(&[1, 4, 0], &[0, 1, 2, 3], &b, &[4, 2, 3, 1], &c);
 
-        assert_tensors_equal(&out, &solution);
+        assert!(all_close(&out, &solution, 1e-12));
     }
 
     #[test]
@@ -1104,7 +1126,7 @@ mod tests {
         let c = Tensor::new_from_flat(&[2, 2, 2], c_data, Some(Layout::RowMajor));
 
         let out = contract(&[1, 3, 2, 0], &[1, 3, 0, 2], &b, &[2, 0, 3], &c);
-        assert_tensors_equal(&out, &solution);
+        assert!(all_close(&out, &solution, 1e-12));
     }
 
     #[test]
@@ -1366,6 +1388,6 @@ mod tests {
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], &b, &[5, 2, 4, 1], &c);
         let out2 = contract(&[3], &[5, 4, 0], &d, &[5, 3, 0, 4], &out1);
 
-        assert_tensors_equal(&out2, &solution);
+        assert!(all_close(&out2, &solution, 1e-12));
     }
 }
