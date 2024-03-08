@@ -14,8 +14,7 @@ const FIELDS: &[&str] = &["shape", "permutation", "data"];
 
 /// Converts a permutation to a vector that can be serialized.
 /// The vector is in zero-based oneline notation (see [`Permutation::oneline`]).
-fn permutation_to_raw(perm: &Permutation) -> Vec<usize>
-{
+fn permutation_to_raw(perm: &Permutation) -> Vec<usize> {
     let normalized = (*perm).clone().normalize(false);
     (0..normalized.len())
         .map(|idx| normalized.apply_idx(idx))
