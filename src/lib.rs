@@ -323,6 +323,34 @@ impl Tensor {
         self.materialize_transpose();
         RefMut::map(self.data.borrow_mut(), Rc::make_mut)
     }
+
+    /// Conjugates the tensor in-place. If the data is shared, it will be copied
+    /// first.
+    ///
+    /// # Examples
+    /// ```
+    /// # use num_complex::Complex64;
+    /// # use tetra::{Tensor, all_close};
+    /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
+    ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
+    ///     Complex64::new(2.0, 2.0), Complex64::new(0.0, 4.0)
+    /// ], None);
+    /// tensor.conjugate();
+    ///
+    /// let reference = Tensor::new_from_flat(&[2, 2], vec![
+    ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
+    ///     Complex64::new(2.0, -2.0), Complex64::new(0.0, -4.0)
+    /// ], None);
+    ///
+    /// assert!(all_close(&tensor, &reference, 1e-12))
+    /// ```
+    pub fn conjugate(&mut self) {
+        let shared_data = self.data.get_mut();
+        let owned_data = Rc::make_mut(shared_data);
+        for val in owned_data.iter_mut() {
+            *val = val.conj();
+        }
+    }
 }
 
 /// Contracts two tensors, returning the resulting tensor.
