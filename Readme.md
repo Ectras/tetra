@@ -1,3 +1,3 @@
 # Tetra: Tensor contraction library
 
-The documentation can be found [here](https://quantum-research.pages.gitlab.lrz.de/tetra/tetra/index.html)
+The documentation can be found [here](https://quantum-research.pages.gitlab.lrz.de/tensornetworksimulation/tetra)
