@@ -740,9 +740,12 @@ mod tests {
         a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
 
         let a_data = a.get_raw_data();
-        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
-        assert_eq!(*a_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
-        assert_eq!(*a_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
+
+        let mut ref_data = vec![Complex64::ZERO; 24];
+        ref_data[0] = Complex64::new(1.0, 2.0);
+        ref_data[11] = Complex64::new(-5.0, 0.0);
+        ref_data[20] = Complex64::new(0.0, -1.0);
+        assert_eq!(*a_data, ref_data);
     }
 
     #[test]
@@ -755,15 +758,21 @@ mod tests {
         a.transpose(&Permutation::oneline([0, 2, 1]));
 
         let a_data = a.get_raw_data();
-        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
-        assert_eq!(*a_data.get(14).unwrap(), Complex64::new(0.0, -1.0));
-        assert_eq!(*a_data.get(19).unwrap(), Complex64::new(-5.0, 0.0));
-
-        // Ensure data is not shared when permuting.
         let b_data = b.get_raw_data();
-        assert_eq!(*b_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
-        assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
-        assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
+
+        // Data of A is permuted
+        let mut ref_a_data = vec![Complex64::ZERO; 24];
+        ref_a_data[0] = Complex64::new(1.0, 2.0);
+        ref_a_data[14] = Complex64::new(0.0, -1.0);
+        ref_a_data[19] = Complex64::new(-5.0, 0.0);
+        assert_eq!(*a_data, ref_a_data);
+
+        // B should still have the original data
+        let mut ref_b_data = vec![Complex64::ZERO; 24];
+        ref_b_data[0] = Complex64::new(1.0, 2.0);
+        ref_b_data[11] = Complex64::new(-5.0, 0.0);
+        ref_b_data[20] = Complex64::new(0.0, -1.0);
+        assert_eq!(*b_data, ref_b_data);
     }
 
     #[test]
@@ -781,17 +790,24 @@ mod tests {
         a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
         let mut b = a.clone();
 
+        // Get the mutable reference to the raw data
         let mut a_data = a.get_raw_data_mut();
-        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
-        assert_eq!(*a_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
-        assert_eq!(*a_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
-        a_data.insert(15, Complex64::new(3.0, 4.33));
+        let mut ref_a_data = vec![Complex64::ZERO; 24];
+        ref_a_data[0] = Complex64::new(1.0, 2.0);
+        ref_a_data[11] = Complex64::new(-5.0, 0.0);
+        ref_a_data[20] = Complex64::new(0.0, -1.0);
+        assert_eq!(*a_data, ref_a_data);
 
+        // Change a value
+        a_data[15] = Complex64::new(3.0, 4.33);
+
+        // Check that B is not affected
         let b_data = b.get_raw_data_mut();
-        assert_eq!(*b_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
-        assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
-        assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
-        assert_eq!(*b_data.get(15).unwrap(), Complex64::new(0.0, 0.0));
+        let mut ref_b_data = vec![Complex64::ZERO; 24];
+        ref_b_data[0] = Complex64::new(1.0, 2.0);
+        ref_b_data[11] = Complex64::new(-5.0, 0.0);
+        ref_b_data[20] = Complex64::new(0.0, -1.0);
+        assert_eq!(*b_data, ref_b_data);
     }
 
     #[test]
@@ -803,28 +819,40 @@ mod tests {
         let mut b = a.clone();
         a.transpose(&Permutation::oneline([2, 1, 0]));
 
+        // Get the mutable reference to the raw data
         let mut a_data = a.get_raw_data_mut();
-        assert_eq!(*a_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
-        assert_eq!(*a_data.get(7).unwrap(), Complex64::new(0.0, -1.0));
-        assert_eq!(*a_data.get(21).unwrap(), Complex64::new(-5.0, 0.0));
+        let mut ref_a_data = vec![Complex64::ZERO; 24];
+        ref_a_data[0] = Complex64::new(1.0, 2.0);
+        ref_a_data[7] = Complex64::new(0.0, -1.0);
+        ref_a_data[21] = Complex64::new(-5.0, 0.0);
+        assert_eq!(*a_data, ref_a_data);
+
+        // Change a value
         a_data.insert(23, Complex64::new(3.0, 4.33));
 
+        // Check that B is not affected by transpose or value change
         let b_data = b.get_raw_data_mut();
-        assert_eq!(*b_data.get(0).unwrap(), Complex64::new(1.0, 2.0));
-        assert_eq!(*b_data.get(20).unwrap(), Complex64::new(0.0, -1.0));
-        assert_eq!(*b_data.get(11).unwrap(), Complex64::new(-5.0, 0.0));
-        assert_eq!(*b_data.get(15).unwrap(), Complex64::new(0.0, 0.0));
+        let mut ref_b_data = vec![Complex64::ZERO; 24];
+        ref_b_data[0] = Complex64::new(1.0, 2.0);
+        ref_b_data[11] = Complex64::new(-5.0, 0.0);
+        ref_b_data[20] = Complex64::new(0.0, -1.0);
+        assert_eq!(*b_data, ref_b_data);
     }
 
     #[test]
-    fn test_get_mut_raw_data_scalar() {
-        let val = Complex64::new(2.0, -3.0);
+    fn test_get_mut_raw_data_reflects_changes() {
+        let mut a = Tensor::new(&[4, 2]);
+
+        assert_eq!(a.get(&[1, 1]), Complex64::ZERO);
+        a.get_raw_data_mut()[5] = Complex64::new(2.0, -1.0);
+        assert_eq!(a.get(&[1, 1]), Complex64::new(2.0, -1.0));
+    }
+
+    #[test]
+    fn test_get_mut_raw_data_scalar_reflects_changes() {
         let mut a = Tensor::new(&[]);
-        {
-            let mut a_data = a.get_raw_data_mut();
-            a_data[0] = val;
-        }
-        assert_eq!(a.get(&[]), val);
+        a.get_raw_data_mut()[0] = Complex64::new(2.0, -3.0);
+        assert_eq!(a.get(&[]), Complex64::new(2.0, -3.0));
     }
 
     #[test]
