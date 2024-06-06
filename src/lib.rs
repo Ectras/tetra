@@ -146,11 +146,18 @@ impl Tensor {
     }
 
     /// Computes the total number of items specified by `dimensions`.
-    fn total_items(dimensions: &[u64]) -> usize {
-        dimensions
-            .iter()
-            .map(|&x| TryInto::<usize>::try_into(x).unwrap())
-            .product()
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// assert_eq!(Tensor::total_items(&[2, 3, 4]), 24);
+    /// assert_eq!(Tensor::total_items(&[1, 1]), 1);
+    ///
+    /// // A scalar has 1 item:
+    /// assert_eq!(Tensor::total_items(&[]), 1);
+    /// ```
+    pub fn total_items(dimensions: &[u64]) -> usize {
+        dimensions.iter().product::<u64>().try_into().unwrap()
     }
 
     /// Computes the flat index given the accessed coordinates.
@@ -502,7 +509,7 @@ pub fn contract(
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
     let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
-    let c_chunk_size = c_shape.iter().product::<u64>() as usize;
+    let c_chunk_size = Tensor::total_items(&c_shape);
 
     for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedge_order) {
         c_shape.push(*hyperedge_size);
