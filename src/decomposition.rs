@@ -85,7 +85,7 @@ impl Decomposition for Tensor {
 
         // copy out upper right triangular matrix to tensor `r`
         for j in 0..n {
-            for i in 0..min(min_dim as u32, j + 1) {
+            for i in 0..min(min_dim as u64, j + 1) {
                 r_tensor.insert(&[i, j], self.get(&[i, j]));
             }
         }
@@ -130,7 +130,7 @@ impl Decomposition for Tensor {
         // Leading dimension of `u_tensor`
         let ldu = m;
         // Leading dimension of `vt_tensor`
-        let ldvt = min_dim as u32;
+        let ldvt = min_dim as u64;
         // Using double vector as stand in until other Tensor types defined
         let mut s = Vec::with_capacity(min_dim);
 
