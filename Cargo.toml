@@ -14,6 +14,7 @@ documentation = "https://quantum-research.pages.gitlab.lrz.de/tetra"
 
 [features]
 serde = ["dep:serde", "num-complex/serde"]
+rand = ["dep:rand", "num-complex/rand"]
 
 [dependencies]
 num-complex = { version = "0.4.6" }
@@ -24,6 +25,7 @@ itertools = "0.13.0"
 cblas-sys = "0.1.4"
 permutation = "0.4.1"
 serde = { version = "1.0.203", optional = true }
+rand = { version = "0.8.5", optional = true }
 
 [dev-dependencies]
 criterion = "0.5.1"
