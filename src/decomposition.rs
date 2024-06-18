@@ -1,5 +1,4 @@
 use crate::Tensor;
-extern crate openblas_src;
 use lapack::{zgeqp3, zgesdd, zungqr};
 use num_complex::{Complex64, ComplexFloat};
 use std::cmp::{max, min};
