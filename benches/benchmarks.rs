@@ -7,10 +7,10 @@ use rand::{
 };
 use tetra::{contract, Tensor};
 
-fn random_tensor(shape: &[u32]) -> Tensor {
+fn random_tensor(shape: &[u64]) -> Tensor {
     let mut rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(-10.0, 10.0);
-    let number_elements: usize = shape.iter().product::<u32>().try_into().unwrap();
+    let number_elements = Tensor::total_items(shape);
     let data = (0..number_elements)
         .map(|_| Complex64::new(range.sample(&mut rng), range.sample(&mut rng)))
         .collect::<Vec<_>>();

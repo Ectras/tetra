@@ -1,6 +1,5 @@
 use std::{cell::RefCell, rc::Rc};
 
-use num_complex::Complex64;
 use permutation::Permutation;
 use serde::{
     de::{self, Visitor},
@@ -101,13 +100,13 @@ impl<'de> Deserialize<'de> for Tensor {
             where
                 A: de::SeqAccess<'de>,
             {
-                let shape: Vec<u32> = seq
+                let shape = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
-                let permutation: Vec<usize> = seq
+                let permutation: Vec<_> = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(1, &self))?;
-                let data: Vec<Complex64> = seq
+                let data = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(2, &self))?;
 
@@ -268,9 +267,9 @@ mod tests {
                 },
                 Token::Str("shape"),
                 Token::Seq { len: Some(3) },
-                Token::U32(1),
-                Token::U32(2),
-                Token::U32(2),
+                Token::U64(1),
+                Token::U64(2),
+                Token::U64(2),
                 Token::SeqEnd,
                 Token::Str("permutation"),
                 Token::Seq { len: Some(3) },

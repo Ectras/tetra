@@ -31,7 +31,7 @@ pub enum Layout {
 #[derive(Clone, Debug)]
 pub struct Tensor {
     /// The shape of the tensor.
-    shape: RefCell<Vec<u32>>,
+    shape: RefCell<Vec<u64>>,
 
     /// The current permutation of dimensions.
     permutation: RefCell<Permutation>,
@@ -56,7 +56,7 @@ impl Tensor {
     /// let matrix = Tensor::new(&[3, 4]);
     /// ```
     #[must_use]
-    pub fn new(dimensions: &[u32]) -> Self {
+    pub fn new(dimensions: &[u64]) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
 
@@ -94,7 +94,7 @@ impl Tensor {
     /// assert_eq!(*row_major.get_raw_data(), *col_major.get_raw_data());
     /// ```
     #[must_use]
-    pub fn new_from_flat(dimensions: &[u32], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
+    pub fn new_from_flat(dimensions: &[u64], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
         assert_eq!(Self::total_items(dimensions), data.len());
@@ -130,7 +130,7 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if any dimension is zero
-    fn new_uninitialized(dimensions: &[u32]) -> Self {
+    fn new_uninitialized(dimensions: &[u64]) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
 
@@ -146,11 +146,18 @@ impl Tensor {
     }
 
     /// Computes the total number of items specified by `dimensions`.
-    fn total_items(dimensions: &[u32]) -> usize {
-        dimensions
-            .iter()
-            .map(|&x| TryInto::<usize>::try_into(x).unwrap())
-            .product()
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// assert_eq!(Tensor::total_items(&[2, 3, 4]), 24);
+    /// assert_eq!(Tensor::total_items(&[1, 1]), 1);
+    ///
+    /// // A scalar has 1 item:
+    /// assert_eq!(Tensor::total_items(&[]), 1);
+    /// ```
+    pub fn total_items(dimensions: &[u64]) -> usize {
+        dimensions.iter().product::<u64>().try_into().unwrap()
     }
 
     /// Computes the flat index given the accessed coordinates.
@@ -158,7 +165,7 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if the coordinates are invalid
-    fn compute_index(&self, coordinates: &[u32]) -> usize {
+    fn compute_index(&self, coordinates: &[u64]) -> usize {
         // Borrow the data
         let permutation = self.permutation.borrow();
         let shape = self.shape.borrow();
@@ -186,7 +193,7 @@ impl Tensor {
     }
 
     /// Inserts a value at the given position.
-    pub fn insert(&mut self, coordinates: &[u32], value: Complex64) {
+    pub fn insert(&mut self, coordinates: &[u64], value: Complex64) {
         let mut data = self.data.borrow_mut();
         let data = Rc::get_mut(&mut data).unwrap();
         let idx = self.compute_index(coordinates);
@@ -195,7 +202,7 @@ impl Tensor {
 
     /// Gets the value at the given position.
     #[must_use]
-    pub fn get(&self, coordinates: &[u32]) -> Complex64 {
+    pub fn get(&self, coordinates: &[u64]) -> Complex64 {
         let data = self.data.borrow();
         let idx = self.compute_index(coordinates);
         data[idx]
@@ -213,7 +220,7 @@ impl Tensor {
     /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
     /// ```
     #[must_use]
-    pub fn shape(&self) -> Vec<u32> {
+    pub fn shape(&self) -> Vec<u64> {
         let shape = self.shape.borrow();
         let permutation = self.permutation.borrow();
         permutation.apply_slice(&*shape)
@@ -239,7 +246,7 @@ impl Tensor {
     /// assert_eq!(t.size(Some(2)), 3);
     /// ```
     #[must_use]
-    pub fn size(&self, axis: Option<usize>) -> u32 {
+    pub fn size(&self, axis: Option<usize>) -> u64 {
         if let Some(axis) = axis {
             let shape = self.shape.borrow();
             let permutation = self.permutation.borrow();
@@ -502,7 +509,7 @@ pub fn contract(
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
     let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
-    let c_chunk_size = c_shape.iter().product::<u32>() as usize;
+    let c_chunk_size = Tensor::total_items(&c_shape);
 
     for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedge_order) {
         c_shape.push(*hyperedge_size);
@@ -683,7 +690,7 @@ mod tests {
     #[test]
     fn test_scalar_shape() {
         let t = Tensor::new(&[]);
-        assert_eq!(t.shape(), Vec::<u32>::new());
+        assert_eq!(t.shape(), vec![]);
         assert_eq!(t.size(None), 1);
         assert_eq!(t.ndim(), 0);
     }
