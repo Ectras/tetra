@@ -16,6 +16,9 @@ use std::iter::zip;
 #[cfg(feature = "serde")]
 pub mod serde;
 
+#[cfg(feature = "rand")]
+pub mod random;
+
 pub mod decomposition;
 
 /// The data layout of a tensor. For row-major, the last index is the fastest running
