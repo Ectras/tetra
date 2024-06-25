@@ -5,7 +5,9 @@ use std::{
     rc::Rc,
 };
 
+#[cfg(feature = "openblas")]
 extern crate openblas_src;
+
 use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt::transpose_simple;
 use itertools::Itertools;

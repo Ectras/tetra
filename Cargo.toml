@@ -13,12 +13,14 @@ documentation = "https://quantum-research.pages.gitlab.lrz.de/tetra"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+default = ["openblas"]
+openblas = ["dep:openblas-src"]
 serde = ["dep:serde", "num-complex/serde"]
 rand = ["dep:rand", "num-complex/rand"]
 
 [dependencies]
 num-complex = { version = "0.4.6" }
-openblas-src = { version = "0.10.9", features = ["system"] }
+openblas-src = { version = "0.10.9", features = ["system"], optional = true }
 hptt = { git = "https://github.com/Ectras/rust-hptt.git" }
 lapack = "0.19.0"
 itertools = "0.13.0"
