@@ -13,7 +13,7 @@ RUN apt-get update && \
     # 4. Install dependencies for the project
     apt-get install -y clang cmake libopenblas-dev libssl-dev pkg-config && \
     # 5. Clear intermediate files
-    apt-get clean
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock tmp/
 ARG SSH_PRIVATE_KEY
 RUN --mount=type=ssh \
