@@ -1,7 +1,6 @@
 use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
-#[cfg(feature = "openblas")]
-extern crate openblas_src;
+extern crate intel_mkl_src;
 
 use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt::transpose_simple;
