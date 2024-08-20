@@ -199,10 +199,10 @@ impl Tensor {
 
     /// Inserts a value at the given position.
     pub fn insert(&mut self, coordinates: &[u64], value: Complex64) {
-        let mut data = self.data.borrow_mut();
-        let data = Rc::get_mut(&mut data).unwrap();
         let idx = self.compute_index(coordinates);
-        data[idx] = value;
+        let shared_data = self.data.get_mut();
+        let owned_data = Rc::make_mut(shared_data);
+        owned_data[idx] = value;
     }
 
     /// Gets the value at the given position.
