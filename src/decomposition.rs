@@ -4,8 +4,8 @@ use num_complex::{Complex64, ComplexFloat};
 use std::cmp::{max, min};
 
 pub trait Decomposition {
-    fn qr(&mut self) -> (Tensor, Tensor);
-    fn svd(&mut self) -> (Tensor, Tensor, Tensor);
+    fn qr(self) -> (Tensor, Tensor);
+    fn svd(self) -> (Tensor, Tensor, Tensor);
 }
 
 impl Decomposition for Tensor {
@@ -15,11 +15,11 @@ impl Decomposition for Tensor {
     /// # Panics
     /// - Panics if the tensor is not a matrix
     /// - Panics if the QR decomposition does not converge
-    fn qr(&mut self) -> (Tensor, Tensor) {
-        assert!(self.ndim() == 2, "Only able to decompose matrices");
+    fn qr(mut self) -> (Tensor, Tensor) {
         // Get shape of input Tensor
-        let m = self.size(Some(0));
-        let n = self.size(Some(1));
+        let [m, n] = self.shape()[..] else {
+            panic!("Only able to decompose matrices")
+        };
         let min_dim = min(m, n) as usize;
 
         // Leading dimension of `self`
@@ -116,11 +116,11 @@ impl Decomposition for Tensor {
     ///
     /// # Panics
     /// - Panics if the tensor is not a matrix
-    fn svd(&mut self) -> (Tensor, Tensor, Tensor) {
-        assert!(self.ndim() == 2, "Only able to decompose matrices");
+    fn svd(mut self) -> (Tensor, Tensor, Tensor) {
         // Get shape of input Tensor
-        let m = self.size(Some(0));
-        let n = self.size(Some(1));
+        let [m, n] = self.shape()[..] else {
+            panic!("Only able to decompose matrices")
+        };
         let min_dim = min(m, n) as usize;
         let max_dim = max(m, n) as usize;
 
