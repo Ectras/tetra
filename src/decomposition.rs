@@ -4,8 +4,8 @@ use num_complex::{Complex64, ComplexFloat};
 use std::cmp::{max, min};
 
 pub trait Decomposition {
-    fn qr(self) -> (Tensor, Tensor);
-    fn svd(self) -> (Tensor, Tensor, Tensor);
+    fn qr(&self) -> (Tensor, Tensor);
+    fn svd(&self) -> (Tensor, Tensor, Tensor);
 }
 
 impl Decomposition for Tensor {
@@ -15,7 +15,7 @@ impl Decomposition for Tensor {
     /// # Panics
     /// - Panics if the tensor is not a matrix
     /// - Panics if the QR decomposition does not converge
-    fn qr(mut self) -> (Tensor, Tensor) {
+    fn qr(&self) -> (Tensor, Tensor) {
         // Get shape of input Tensor
         let [m, n] = self.shape()[..] else {
             panic!("Only able to decompose matrices")
@@ -42,11 +42,14 @@ impl Decomposition for Tensor {
         // Return 0 if successful
         let mut info = 0;
 
+        let self_data = self.elements();
+        let mut self_contiguous = Self::new_from_flat(&self.shape(), self_data.into_owned(), None);
+
         unsafe {
             zgeqp3(
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.get_raw_data_mut(),
+                self_contiguous.raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut jpvt,
                 &mut tau,
@@ -67,7 +70,7 @@ impl Decomposition for Tensor {
             zgeqp3(
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.get_raw_data_mut(),
+                self_contiguous.raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut jpvt,
                 &mut tau,
@@ -85,7 +88,7 @@ impl Decomposition for Tensor {
         // copy out upper right triangular matrix to tensor `r`
         for j in 0..n {
             for i in 0..min(min_dim as u64, j + 1) {
-                r_tensor.insert(&[i, j], self.get(&[i, j]));
+                r_tensor.insert(&[i, j], self_contiguous.get(&[i, j]));
             }
         }
 
@@ -94,7 +97,7 @@ impl Decomposition for Tensor {
                 m.try_into().unwrap(),
                 min(m, n).try_into().unwrap(),
                 min(m, n).try_into().unwrap(),
-                &mut self.get_raw_data_mut(),
+                self_contiguous.raw_data_mut(),
                 lda.try_into().unwrap(),
                 &tau,
                 &mut work,
@@ -105,7 +108,7 @@ impl Decomposition for Tensor {
 
         for i in 0..m {
             for j in 0..n {
-                q_tensor.insert(&[i, j], self.get(&[i, j]));
+                q_tensor.insert(&[i, j], self_contiguous.get(&[i, j]));
             }
         }
         (q_tensor, r_tensor)
@@ -116,7 +119,7 @@ impl Decomposition for Tensor {
     ///
     /// # Panics
     /// - Panics if the tensor is not a matrix
-    fn svd(mut self) -> (Tensor, Tensor, Tensor) {
+    fn svd(&self) -> (Tensor, Tensor, Tensor) {
         // Get shape of input Tensor
         let [m, n] = self.shape()[..] else {
             panic!("Only able to decompose matrices")
@@ -152,6 +155,9 @@ impl Decomposition for Tensor {
         // Integer scratch space
         let mut iwork = Vec::with_capacity(8 * min_dim);
 
+        let self_data = self.elements();
+        let mut self_contiguous = Self::new_from_flat(&self.shape(), self_data.into_owned(), None);
+
         // Queries for optimal scratch space
         let mut info = 0;
         unsafe {
@@ -159,12 +165,12 @@ impl Decomposition for Tensor {
                 b'S',
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.get_raw_data_mut(),
+                self_contiguous.raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut s,
-                &mut u_tensor.get_raw_data_mut(),
+                u_tensor.raw_data_mut(),
                 ldu.try_into().unwrap(),
-                &mut vt_tensor.get_raw_data_mut(),
+                vt_tensor.raw_data_mut(),
                 ldvt.try_into().unwrap(),
                 &mut work,
                 lwork,
@@ -185,12 +191,12 @@ impl Decomposition for Tensor {
                 b'S',
                 m.try_into().unwrap(),
                 n.try_into().unwrap(),
-                &mut self.get_raw_data_mut(),
+                self_contiguous.raw_data_mut(),
                 lda.try_into().unwrap(),
                 &mut s,
-                &mut u_tensor.get_raw_data_mut(),
+                u_tensor.raw_data_mut(),
                 ldu.try_into().unwrap(),
-                &mut vt_tensor.get_raw_data_mut(),
+                vt_tensor.raw_data_mut(),
                 ldvt.try_into().unwrap(),
                 &mut work,
                 lwork,
@@ -214,7 +220,6 @@ impl Decomposition for Tensor {
 mod tests {
     use crate::decomposition::Decomposition;
     use crate::{all_close, contract, Tensor};
-    use itertools::Itertools;
     use num_complex::Complex64;
     use rand::distributions::{Distribution, Uniform};
     use rand::rngs::StdRng;
@@ -226,16 +231,10 @@ mod tests {
         let die = Uniform::from(4..10);
 
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
-        let mut a = Tensor::new(tensor_dims);
-
-        let t_ranges = tensor_dims
-            .iter()
-            .map(|e| (0..*e))
-            .multi_cartesian_product();
-
-        for dim in t_ranges.clone() {
-            a.insert(&dim, Complex64::new(rng.gen(), 0.0));
-        }
+        let data = (0..Tensor::total_items(tensor_dims))
+            .map(|_| Complex64::new(rng.gen(), 0.0))
+            .collect::<Vec<_>>();
+        let a = Tensor::new_from_flat(tensor_dims, data, None);
         let sol = a.clone();
 
         let (q, r) = a.qr();
@@ -250,16 +249,10 @@ mod tests {
         let die = Uniform::from(4..10);
 
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
-        let mut a = Tensor::new(tensor_dims);
-
-        let t_ranges = tensor_dims
-            .iter()
-            .map(|e| (0..*e))
-            .multi_cartesian_product();
-
-        for dim in t_ranges.clone() {
-            a.insert(&dim, Complex64::new(rng.gen(), 0.0));
-        }
+        let data = (0..Tensor::total_items(tensor_dims))
+            .map(|_| Complex64::new(rng.gen(), 0.0))
+            .collect::<Vec<_>>();
+        let a = Tensor::new_from_flat(tensor_dims, data, None);
         let sol = a.clone();
 
         let (u, s, vt) = a.svd();

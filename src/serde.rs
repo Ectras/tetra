@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::sync::Arc;
 
 use permutation::Permutation;
 use serde::{
@@ -31,15 +31,11 @@ impl Serialize for Tensor {
     where
         S: serde::Serializer,
     {
-        let shape = self.shape.borrow();
-        let permutation = self.permutation.borrow();
-        let data = self.data.borrow();
-
         // Serialize tensor
         let mut state = serializer.serialize_struct("Tensor", FIELDS.len())?;
-        state.serialize_field(FIELDS[0], &shape.as_slice())?;
-        state.serialize_field(FIELDS[1], &permutation_to_raw(&permutation))?;
-        state.serialize_field(FIELDS[2], data.as_slice())?;
+        state.serialize_field(FIELDS[0], &self.shape)?;
+        state.serialize_field(FIELDS[1], &permutation_to_raw(&self.permutation))?;
+        state.serialize_field(FIELDS[2], &*self.data)?;
         state.end()
     }
 }
@@ -113,9 +109,9 @@ impl<'de> Deserialize<'de> for Tensor {
                 // Create the tensor
                 let permutation = raw_to_permutation(&permutation);
                 Ok(Tensor {
-                    shape: RefCell::new(shape),
-                    permutation: RefCell::new(permutation),
-                    data: RefCell::new(Rc::new(data)),
+                    shape,
+                    permutation,
+                    data: Arc::new(data),
                 })
             }
 
@@ -158,9 +154,9 @@ impl<'de> Deserialize<'de> for Tensor {
                 // Create the tensor
                 let permutation = raw_to_permutation(&permutation);
                 Ok(Tensor {
-                    shape: RefCell::new(shape),
-                    permutation: RefCell::new(permutation),
-                    data: RefCell::new(Rc::new(data)),
+                    shape,
+                    permutation,
+                    data: Arc::new(data),
                 })
             }
         }
@@ -186,8 +182,8 @@ mod tests {
     impl PartialEq for TensorEqWrapper {
         fn eq(&self, other: &Self) -> bool {
             self.0.shape == other.0.shape
-                && *self.0.permutation.borrow() == *other.0.permutation.borrow()
-                && *self.0.data.borrow() == *other.0.data.borrow()
+                && self.0.permutation == other.0.permutation
+                && self.0.data == other.0.data
         }
     }
 

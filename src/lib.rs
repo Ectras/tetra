@@ -1,9 +1,4 @@
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    collections::HashSet,
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 #[cfg(feature = "openblas")]
 extern crate openblas_src;
@@ -36,13 +31,13 @@ pub enum Layout {
 #[derive(Clone, Debug)]
 pub struct Tensor {
     /// The shape of the tensor.
-    shape: RefCell<Vec<u64>>,
+    shape: Vec<u64>,
 
     /// The current permutation of dimensions.
-    permutation: RefCell<Permutation>,
+    permutation: Permutation,
 
     /// The tensor data in column-major order.
-    data: RefCell<Rc<Vec<Complex64>>>,
+    data: Arc<Vec<Complex64>>,
 }
 
 impl Tensor {
@@ -66,17 +61,17 @@ impl Tensor {
         assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
-        let iden = Permutation::one(dimensions.len());
+        let identity = Permutation::one(dimensions.len());
         let total_items = Self::total_items(dimensions);
-        let zero_data = vec![Complex64::default(); total_items];
+        let zeros = vec![Complex64::default(); total_items];
         Self {
-            shape: RefCell::new(dimensions.to_vec()),
-            permutation: RefCell::new(iden),
-            data: RefCell::new(Rc::new(zero_data)),
+            shape: dimensions.to_vec(),
+            permutation: identity,
+            data: Arc::new(zeros),
         }
     }
 
-    /// Creates a new `Tensor` with the given dimensions and the corresponding data.
+    /// Creates a new [`Tensor`] with the given dimensions and the corresponding data.
     /// Assumes data is column-major unless otherwise specified.
     ///
     /// # Panics
@@ -86,8 +81,7 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use num_complex::Complex64;
-    /// # use tetra::Tensor;
-    /// # use tetra::Layout;
+    /// # use tetra::{Layout, Tensor, all_close};
     /// let row_major = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
     ///     Complex64::new(3.0, 0.0), Complex64::new(4.0, 0.0)
@@ -96,7 +90,7 @@ impl Tensor {
     ///     Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
     ///     Complex64::new(2.0, 0.0), Complex64::new(4.0, 0.0)
     /// ], Some(Layout::ColumnMajor));
-    /// assert_eq!(*row_major.get_raw_data(), *col_major.get_raw_data());
+    /// assert!(all_close(&row_major, &col_major, 1e-12));
     /// ```
     #[must_use]
     pub fn new_from_flat(dimensions: &[u64], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
@@ -105,7 +99,7 @@ impl Tensor {
         assert_eq!(Self::total_items(dimensions), data.len());
 
         // Get the permutation based on the requested layout
-        let (permutation, dims) = match layout.unwrap_or(Layout::ColumnMajor) {
+        let (permutation, shape) = match layout.unwrap_or(Layout::ColumnMajor) {
             Layout::RowMajor => {
                 let perm_line = (0..dimensions.len()).rev().collect::<Vec<_>>();
                 let perm = Permutation::oneline(perm_line);
@@ -118,9 +112,9 @@ impl Tensor {
 
         // Construct tensor
         Self {
-            shape: RefCell::new(dims),
-            permutation: RefCell::new(permutation),
-            data: RefCell::new(Rc::new(data)),
+            shape,
+            permutation,
+            data: Arc::new(data),
         }
     }
 
@@ -140,13 +134,13 @@ impl Tensor {
         assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
-        let iden = Permutation::one(dimensions.len());
+        let identity = Permutation::one(dimensions.len());
         let total_items = Self::total_items(dimensions);
         let uninitialized = Vec::with_capacity(total_items);
         Self {
-            shape: RefCell::new(dimensions.to_vec()),
-            permutation: RefCell::new(iden),
-            data: RefCell::new(Rc::new(uninitialized)),
+            shape: dimensions.to_vec(),
+            permutation: identity,
+            data: Arc::new(uninitialized),
         }
     }
 
@@ -172,22 +166,20 @@ impl Tensor {
     /// - Panics if the coordinates are invalid
     fn compute_index(&self, coordinates: &[u64]) -> usize {
         // Borrow the data
-        let permutation = self.permutation.borrow();
-        let shape = self.shape.borrow();
-        assert_eq!(coordinates.len(), shape.len());
+        assert_eq!(coordinates.len(), self.shape.len());
 
         // Get the unpermuted coordinates
-        let coords = permutation.apply_inv_slice(coordinates);
+        let coords = self.permutation.apply_inv_slice(coordinates);
 
         // Compute index
         let mut idx = 0;
         for i in (0..coords.len()).rev() {
             // Check coordinate
-            assert!(coords[i] < shape[i]);
+            assert!(coords[i] < self.shape[i]);
 
             // Accumulate index
             let c: usize = coords[i].try_into().unwrap();
-            let s: usize = shape[i].try_into().unwrap();
+            let s: usize = self.shape[i].try_into().unwrap();
             if i == coords.len() - 1 {
                 idx = c;
             } else {
@@ -200,17 +192,15 @@ impl Tensor {
     /// Inserts a value at the given position.
     pub fn insert(&mut self, coordinates: &[u64], value: Complex64) {
         let idx = self.compute_index(coordinates);
-        let shared_data = self.data.get_mut();
-        let owned_data = Rc::make_mut(shared_data);
-        owned_data[idx] = value;
+        let data = Arc::make_mut(&mut self.data);
+        data[idx] = value;
     }
 
     /// Gets the value at the given position.
     #[must_use]
     pub fn get(&self, coordinates: &[u64]) -> Complex64 {
-        let data = self.data.borrow();
         let idx = self.compute_index(coordinates);
-        data[idx]
+        self.data[idx]
     }
 
     /// Returns a copy of the current shape.
@@ -226,9 +216,7 @@ impl Tensor {
     /// ```
     #[must_use]
     pub fn shape(&self) -> Vec<u64> {
-        let shape = self.shape.borrow();
-        let permutation = self.permutation.borrow();
-        permutation.apply_slice(&*shape)
+        self.permutation.apply_slice(&self.shape)
     }
 
     /// Returns the size of a single axis or of the whole tensor.
@@ -253,12 +241,9 @@ impl Tensor {
     #[must_use]
     pub fn size(&self, axis: Option<usize>) -> u64 {
         if let Some(axis) = axis {
-            let shape = self.shape.borrow();
-            let permutation = self.permutation.borrow();
-            shape[permutation.apply_inv_idx(axis)]
+            self.shape[self.permutation.apply_inv_idx(axis)]
         } else {
-            let data = self.data.borrow();
-            data.len().try_into().unwrap()
+            self.data.len().try_into().unwrap()
         }
     }
 
@@ -272,68 +257,55 @@ impl Tensor {
     /// ```
     #[must_use]
     pub fn ndim(&self) -> usize {
-        let shape = self.shape.borrow();
-        shape.len()
+        self.shape.len()
     }
 
     /// Transposes the tensor axes according to the permutation.
     /// This method does not modify the data but only the view, hence it is zero
     /// cost.
     pub fn transpose(&mut self, permutation: &Permutation) {
-        self.permutation
-            .replace_with(|old_perm| permutation * old_perm);
+        self.permutation = permutation * &self.permutation;
     }
 
     /// Computes the transposed data based on the current permutation.
     fn compute_transposed_data(&self, data: &[Complex64]) -> Vec<Complex64> {
-        // Borrow tensor data
-        let mut permutation = self.permutation.borrow_mut();
-        let shape = self.shape.borrow();
-
         // Get the permutation as [i32]
-        let mut raw_perm: Vec<_> = (0..i32::try_from(permutation.len()).unwrap()).collect();
-        permutation.apply_slice_in_place(&mut raw_perm);
+        let raw_perm = (0..i32::try_from(self.permutation.len()).unwrap()).collect::<Vec<_>>();
+        let raw_perm = self.permutation.apply_slice(raw_perm);
 
         // Get the shape as [i32]
-        let shape: Vec<_> = shape.iter().map(|x| (*x).try_into().unwrap()).collect();
+        let shape: Vec<_> = self
+            .shape
+            .iter()
+            .map(|x| (*x).try_into().unwrap())
+            .collect();
 
         // Transpose data and shape
         transpose_simple(&raw_perm, data, &shape)
     }
 
-    /// Actually transposes the underlying data according to the current axis
-    /// permutation. This should not affect the tensor as observable from the outside
-    /// (e.g. `shape()`, `size()`, `get()` and similar should show no difference).
-    fn materialize_transpose(&self) {
-        let needs_transpose = *self.permutation.borrow() != Permutation::one(self.ndim());
-        if needs_transpose {
-            self.data
-                .replace_with(|old_data| Rc::new(self.compute_transposed_data(old_data)));
-            self.shape
-                .replace_with(|old_shape| self.permutation.borrow().apply_slice(old_shape));
-            self.permutation
-                .replace_with(|old_perm| Permutation::one(old_perm.len()));
+    /// Returns whether the data is laid out contiguous in memory, i.e., the logical
+    /// order of elements matches the physical order in memory.
+    fn is_contiguous(&self) -> bool {
+        self.permutation == Permutation::one(self.permutation.len())
+    }
+
+    /// Returns the items of the tensor as a flat vector. The elements correspond to
+    /// the logical order of elements: If the data is contiguous, a borrowed
+    /// reference is returned, otherwise a contiguous copy is made and returned.
+    pub fn elements(&self) -> Cow<Vec<Complex64>> {
+        if self.is_contiguous() {
+            Cow::Borrowed(&*self.data)
+        } else {
+            Cow::Owned(self.compute_transposed_data(&self.data))
         }
     }
 
-    /// Gets a reference to the raw (i.e. flat) vector data. If the tensor has a
-    /// non-identity permutation, this function will transpose the raw data of the
-    /// tensor before returning the reference. If the raw data was shared with other
-    /// tensors, they will not be affected by the transpose.
-    pub fn get_raw_data(&self) -> impl Deref<Target = Vec<Complex64>> + '_ {
-        self.materialize_transpose();
-        Ref::map(self.data.borrow(), Rc::deref)
-    }
-
-    /// Gets a mutable reference to the raw (i.e. flat) vector data. If the tensor
-    /// has a non-identity permutation, this function will transpose the raw data of
-    /// the tensor before returning the reference. If the raw data was shared with
-    /// other tensors, they will not be affected by the transpose. If no transpose is
-    /// needed and the data is shared, it will be copied to ensure that changes
-    /// through the mutable reference are not reflected onto other tensors.
-    pub fn get_raw_data_mut(&mut self) -> impl DerefMut<Target = Vec<Complex64>> + '_ {
-        self.materialize_transpose();
-        RefMut::map(self.data.borrow_mut(), Rc::make_mut)
+    /// Gets a mutable reference to the raw (i.e. flat) vector data. If the data is
+    /// shared, it is cloned, so modifications are not reflected in other tensors.
+    /// The data is not guaranteed to be contiguous.
+    fn raw_data_mut(&mut self) -> &mut Vec<Complex64> {
+        Arc::make_mut(&mut self.data)
     }
 
     /// Conjugates the tensor in-place. If the data is shared, it will be copied
@@ -357,9 +329,8 @@ impl Tensor {
     /// assert!(all_close(&tensor, &reference, 1e-12))
     /// ```
     pub fn conjugate(&mut self) {
-        let shared_data = self.data.get_mut();
-        let owned_data = Rc::make_mut(shared_data);
-        for val in owned_data.iter_mut() {
+        let owned_data = Arc::make_mut(&mut self.data);
+        for val in owned_data {
             *val = val.conj();
         }
     }
@@ -458,7 +429,7 @@ pub fn contract(
     // Get transposed A
     let mut a_view = a.clone();
     a_view.transpose(&Permutation::oneline(a_perm).inverse());
-    let a_data = a_view.get_raw_data();
+    let a_data = a_view.elements();
 
     // Compute permutation, total size of contracted dimensions and total size of
     // remaining dimensions for B.
@@ -484,7 +455,7 @@ pub fn contract(
     // Get transposed B
     let mut b_view = b.clone();
     b_view.transpose(&Permutation::oneline(b_perm).inverse());
-    let b_data = b_view.get_raw_data();
+    let b_data = b_view.elements();
 
     // Make sure the connecting matrix dimensions match
     assert_eq!(a_contracted_size, b_contracted_size);
@@ -526,7 +497,7 @@ pub fn contract(
 
     // Scope to limit lifetime of mutable out data borrow
     {
-        let mut out = out.get_raw_data_mut();
+        let out = out.raw_data_mut();
         let out_data = &mut *out;
 
         let hyperedge_iter = if hyperedge_size.is_empty() {
@@ -621,8 +592,8 @@ pub fn all_close(a: &Tensor, b: &Tensor, epsilon: f64) -> bool {
 
     // Get the permuted data
     // TODO: Should we instead access only inidividual elements to avoid this?
-    let a_data = a.get_raw_data();
-    let b_data = b.get_raw_data();
+    let a_data = a.elements();
+    let b_data = b.elements();
 
     // Compare the elements
     for (va, vb) in zip(&*a_data, &*b_data) {
@@ -702,6 +673,20 @@ mod tests {
 
     #[test]
     fn test_single_transpose() {
+        let mut a = Tensor::new(&[2, 3, 4, 5]);
+        a.insert(&[0, 0, 0, 1], Complex64::new(1.0, 2.0));
+        a.insert(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
+        a.insert(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
+
+        a.transpose(&Permutation::oneline([2, 0, 1, 3]));
+        assert_eq!(a.shape(), vec![3, 4, 2, 5]);
+        assert_eq!(a.get(&[0, 0, 0, 1]), Complex64::new(1.0, 2.0));
+        assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
+        assert_eq!(a.get(&[2, 1, 1, 4]), Complex64::new(-5.0, 0.0));
+    }
+
+    #[test]
+    fn test_transpose_twice() {
         let mut a = Tensor::new(&[2, 3, 4]);
         a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
         a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
@@ -727,75 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn test_materialize_transpose() {
-        let mut a = Tensor::new(&[2, 3, 4, 5]);
-        a.insert(&[0, 0, 0, 1], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
-
-        a.transpose(&Permutation::oneline([2, 0, 1, 3]));
-        assert_eq!(a.shape(), vec![3, 4, 2, 5]);
-        assert_eq!(a.get(&[0, 0, 0, 1]), Complex64::new(1.0, 2.0));
-        assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
-        assert_eq!(a.get(&[2, 1, 1, 4]), Complex64::new(-5.0, 0.0));
-        a.materialize_transpose();
-
-        assert_eq!(*a.shape.borrow(), vec![3, 4, 2, 5]);
-        assert_eq!(*a.permutation.borrow(), Permutation::one(4));
-    }
-
-    #[test]
-    fn test_get_raw_data() {
-        let mut a = Tensor::new(&[2, 3, 4]);
-        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
-
-        let a_data = a.get_raw_data();
-
-        let mut ref_data = vec![Complex64::ZERO; 24];
-        ref_data[0] = Complex64::new(1.0, 2.0);
-        ref_data[11] = Complex64::new(-5.0, 0.0);
-        ref_data[20] = Complex64::new(0.0, -1.0);
-        assert_eq!(*a_data, ref_data);
-    }
-
-    #[test]
-    fn test_get_raw_data_with_permute() {
-        let mut a = Tensor::new(&[2, 3, 4]);
-        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
-        let b = a.clone();
-        a.transpose(&Permutation::oneline([0, 2, 1]));
-
-        let a_data = a.get_raw_data();
-        let b_data = b.get_raw_data();
-
-        // Data of A is permuted
-        let mut ref_a_data = vec![Complex64::ZERO; 24];
-        ref_a_data[0] = Complex64::new(1.0, 2.0);
-        ref_a_data[14] = Complex64::new(0.0, -1.0);
-        ref_a_data[19] = Complex64::new(-5.0, 0.0);
-        assert_eq!(*a_data, ref_a_data);
-
-        // B should still have the original data
-        let mut ref_b_data = vec![Complex64::ZERO; 24];
-        ref_b_data[0] = Complex64::new(1.0, 2.0);
-        ref_b_data[11] = Complex64::new(-5.0, 0.0);
-        ref_b_data[20] = Complex64::new(0.0, -1.0);
-        assert_eq!(*b_data, ref_b_data);
-    }
-
-    #[test]
-    fn test_get_raw_data_scalar() {
-        let val = Complex64::new(2.0, -3.0);
-        let a = Tensor::new_scalar(val);
-        assert_eq!(*a.get_raw_data(), vec![val]);
-    }
-
-    #[test]
-    fn test_get_mut_raw_data() {
+    fn test_raw_data_mut() {
         let mut a = Tensor::new(&[2, 3, 4]);
         a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
         a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
@@ -803,7 +720,7 @@ mod tests {
         let mut b = a.clone();
 
         // Get the mutable reference to the raw data
-        let mut a_data = a.get_raw_data_mut();
+        let a_data = a.raw_data_mut();
         let mut ref_a_data = vec![Complex64::ZERO; 24];
         ref_a_data[0] = Complex64::new(1.0, 2.0);
         ref_a_data[11] = Complex64::new(-5.0, 0.0);
@@ -814,7 +731,7 @@ mod tests {
         a_data[15] = Complex64::new(3.0, 4.33);
 
         // Check that B is not affected
-        let b_data = b.get_raw_data_mut();
+        let b_data = b.raw_data_mut();
         let mut ref_b_data = vec![Complex64::ZERO; 24];
         ref_b_data[0] = Complex64::new(1.0, 2.0);
         ref_b_data[11] = Complex64::new(-5.0, 0.0);
@@ -823,68 +740,71 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mut_raw_data_with_permute() {
-        let mut a = Tensor::new(&[2, 3, 4]);
-        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
-        let mut b = a.clone();
-        a.transpose(&Permutation::oneline([2, 1, 0]));
+    fn test_elements() {
+        let ref_data = vec![
+            Complex64::new(1.0, 2.0),
+            Complex64::new(0.0, -1.0),
+            Complex64::new(-5.0, 0.0),
+        ];
+        let a = Tensor::new_from_flat(&[1, 3, 1], ref_data.clone(), None);
 
-        // Get the mutable reference to the raw data
-        let mut a_data = a.get_raw_data_mut();
-        let mut ref_a_data = vec![Complex64::ZERO; 24];
-        ref_a_data[0] = Complex64::new(1.0, 2.0);
-        ref_a_data[7] = Complex64::new(0.0, -1.0);
-        ref_a_data[21] = Complex64::new(-5.0, 0.0);
-        assert_eq!(*a_data, ref_a_data);
-
-        // Change a value
-        a_data.insert(23, Complex64::new(3.0, 4.33));
-
-        // Check that B is not affected by transpose or value change
-        let b_data = b.get_raw_data_mut();
-        let mut ref_b_data = vec![Complex64::ZERO; 24];
-        ref_b_data[0] = Complex64::new(1.0, 2.0);
-        ref_b_data[11] = Complex64::new(-5.0, 0.0);
-        ref_b_data[20] = Complex64::new(0.0, -1.0);
-        assert_eq!(*b_data, ref_b_data);
+        assert!(a.is_contiguous());
+        let elements = a.elements();
+        let Cow::Borrowed(data) = elements else {
+            panic!("Expected borrowed data")
+        };
+        assert_eq!(data, &ref_data);
     }
 
     #[test]
-    fn test_get_mut_raw_data_reflects_changes() {
+    fn test_elements_after_transpose() {
+        let ref_data = vec![
+            Complex64::new(1.0, 2.0),
+            Complex64::new(0.0, -1.0),
+            Complex64::new(-5.0, 0.0),
+            Complex64::new(3.0, 4.0),
+        ];
+        let transposed_ref_data = vec![
+            Complex64::new(1.0, 2.0),
+            Complex64::new(-5.0, 0.0),
+            Complex64::new(0.0, -1.0),
+            Complex64::new(3.0, 4.0),
+        ];
+        let mut a = Tensor::new_from_flat(&[2, 1, 2], ref_data.clone(), None);
+
+        // Without transpose, the data is still contiguous and can be borrowed
+        assert!(a.is_contiguous());
+        let elements = a.elements();
+        let Cow::Borrowed(data) = elements else {
+            panic!("Expected borrowed data")
+        };
+        assert_eq!(data, &ref_data);
+
+        a.transpose(&Permutation::oneline(vec![2, 0, 1]));
+
+        // After transpose, the data is no longer contiguous and must be cloned
+        assert!(!a.is_contiguous());
+        let elements = a.elements();
+        let Cow::Owned(data) = elements else {
+            panic!("Expected owned data")
+        };
+        assert_eq!(data, transposed_ref_data);
+    }
+
+    #[test]
+    fn test_raw_data_mut_reflects_changes() {
         let mut a = Tensor::new(&[4, 2]);
 
         assert_eq!(a.get(&[1, 1]), Complex64::ZERO);
-        a.get_raw_data_mut()[5] = Complex64::new(2.0, -1.0);
+        a.raw_data_mut()[5] = Complex64::new(2.0, -1.0);
         assert_eq!(a.get(&[1, 1]), Complex64::new(2.0, -1.0));
     }
 
     #[test]
-    fn test_get_mut_raw_data_scalar_reflects_changes() {
+    fn test_raw_data_mut_scalar_reflects_changes() {
         let mut a = Tensor::new(&[]);
-        a.get_raw_data_mut()[0] = Complex64::new(2.0, -3.0);
+        a.raw_data_mut()[0] = Complex64::new(2.0, -3.0);
         assert_eq!(a.get(&[]), Complex64::new(2.0, -3.0));
-    }
-
-    #[test]
-    fn test_transpose() {
-        let mut a = Tensor::new(&[2, 3, 4]);
-        a.insert(&[0, 0, 1], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 2, 2], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 0, 1], Complex64::new(-5.0, 0.0));
-
-        a.transpose(&Permutation::oneline([2, 1, 0]));
-        assert_eq!(a.shape(), vec![4, 3, 2]);
-        assert_eq!(a.get(&[1, 0, 0]), Complex64::new(1.0, 2.0));
-        assert_eq!(a.get(&[2, 2, 0]), Complex64::new(0.0, -1.0));
-        assert_eq!(a.get(&[1, 0, 1]), Complex64::new(-5.0, 0.0));
-
-        a.transpose(&Permutation::oneline([0, 2, 1]));
-        assert_eq!(a.shape(), vec![4, 2, 3]);
-        assert_eq!(a.get(&[1, 0, 0]), Complex64::new(1.0, 2.0));
-        assert_eq!(a.get(&[2, 0, 2]), Complex64::new(0.0, -1.0));
-        assert_eq!(a.get(&[1, 1, 0]), Complex64::new(-5.0, 0.0));
     }
 
     #[test]
