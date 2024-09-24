@@ -1,4 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use itertools::Itertools;
 use num_complex::Complex64;
 use rand::{
     distributions::{Distribution, Uniform},
@@ -13,7 +14,7 @@ fn random_tensor(shape: &[u64]) -> Tensor {
     let number_elements = Tensor::total_items(shape);
     let data = (0..number_elements)
         .map(|_| Complex64::new(range.sample(&mut rng), range.sample(&mut rng)))
-        .collect::<Vec<_>>();
+        .collect_vec();
     Tensor::new_from_flat(shape, data, None)
 }
 

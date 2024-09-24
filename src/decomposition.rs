@@ -1,4 +1,5 @@
 use crate::Tensor;
+use itertools::Itertools;
 use lapack::{zgeqp3, zgesdd, zungqr};
 use num_complex::{Complex64, ComplexFloat};
 use std::cmp::{max, min};
@@ -25,7 +26,7 @@ impl Decomposition for Tensor {
         // Leading dimension of `self`
         let lda = max(1, m);
 
-        let mut jpvt = (1..=(n as i32)).collect::<Vec<i32>>();
+        let mut jpvt = (1..=(n as i32)).collect_vec();
 
         // The scalar factors of the elementary reflectors.
         let mut tau = Vec::with_capacity(min_dim);
@@ -220,6 +221,7 @@ impl Decomposition for Tensor {
 mod tests {
     use crate::decomposition::Decomposition;
     use crate::{all_close, contract, Tensor};
+    use itertools::Itertools;
     use num_complex::Complex64;
     use rand::distributions::{Distribution, Uniform};
     use rand::rngs::StdRng;
@@ -233,7 +235,7 @@ mod tests {
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
         let data = (0..Tensor::total_items(tensor_dims))
             .map(|_| Complex64::new(rng.gen(), 0.0))
-            .collect::<Vec<_>>();
+            .collect_vec();
         let a = Tensor::new_from_flat(tensor_dims, data, None);
         let sol = a.clone();
 
@@ -251,7 +253,7 @@ mod tests {
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
         let data = (0..Tensor::total_items(tensor_dims))
             .map(|_| Complex64::new(rng.gen(), 0.0))
-            .collect::<Vec<_>>();
+            .collect_vec();
         let a = Tensor::new_from_flat(tensor_dims, data, None);
         let sol = a.clone();
 

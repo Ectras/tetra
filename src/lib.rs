@@ -101,7 +101,7 @@ impl Tensor {
         // Get the permutation based on the requested layout
         let (permutation, shape) = match layout.unwrap_or(Layout::ColumnMajor) {
             Layout::RowMajor => {
-                let perm_line = (0..dimensions.len()).rev().collect::<Vec<_>>();
+                let perm_line = (0..dimensions.len()).rev().collect_vec();
                 let perm = Permutation::oneline(perm_line);
                 let mut dims = dimensions.to_vec();
                 dims.reverse();
@@ -270,15 +270,15 @@ impl Tensor {
     /// Computes the transposed data based on the current permutation.
     fn compute_transposed_data(&self, data: &[Complex64]) -> Vec<Complex64> {
         // Get the permutation as [i32]
-        let raw_perm = (0..i32::try_from(self.permutation.len()).unwrap()).collect::<Vec<_>>();
+        let raw_perm = (0..i32::try_from(self.permutation.len()).unwrap()).collect_vec();
         let raw_perm = self.permutation.apply_slice(raw_perm);
 
         // Get the shape as [i32]
-        let shape: Vec<_> = self
+        let shape = self
             .shape
             .iter()
             .map(|x| (*x).try_into().unwrap())
-            .collect();
+            .collect_vec();
 
         // Transpose data and shape
         transpose_simple(&raw_perm, data, &shape)
