@@ -89,7 +89,7 @@ impl Decomposition for Tensor {
         // copy out upper right triangular matrix to tensor `r`
         for j in 0..n {
             for i in 0..min(min_dim as u64, j + 1) {
-                r_tensor.insert(&[i, j], self_contiguous.get(&[i, j]));
+                r_tensor.set(&[i, j], self_contiguous.get(&[i, j]));
             }
         }
 
@@ -109,7 +109,7 @@ impl Decomposition for Tensor {
 
         for i in 0..m {
             for j in 0..n {
-                q_tensor.insert(&[i, j], self_contiguous.get(&[i, j]));
+                q_tensor.set(&[i, j], self_contiguous.get(&[i, j]));
             }
         }
         (q_tensor, r_tensor)
@@ -210,7 +210,7 @@ impl Decomposition for Tensor {
 
         // Fill in s_tensor
         for i in 0..ldvt {
-            s_tensor.insert(&[i, i], Complex64::new(s[i as usize], 0.0));
+            s_tensor.set(&[i, i], Complex64::new(s[i as usize], 0.0));
         }
 
         (u_tensor, s_tensor, vt_tensor)

@@ -189,8 +189,8 @@ impl Tensor {
         idx
     }
 
-    /// Inserts a value at the given position.
-    pub fn insert(&mut self, coordinates: &[u64], value: Complex64) {
+    /// Sets the value at the given position.
+    pub fn set(&mut self, coordinates: &[u64], value: Complex64) {
         let idx = self.compute_index(coordinates);
         let data = Arc::make_mut(&mut self.data);
         data[idx] = value;
@@ -659,7 +659,7 @@ mod tests {
     #[test]
     fn test_scalar_get_set() {
         let mut t = Tensor::new(&[]);
-        t.insert(&[], Complex64::new(1.0, 2.0));
+        t.set(&[], Complex64::new(1.0, 2.0));
         assert_eq!(t.get(&[]), Complex64::new(1.0, 2.0));
     }
 
@@ -674,9 +674,9 @@ mod tests {
     #[test]
     fn test_single_transpose() {
         let mut a = Tensor::new(&[2, 3, 4, 5]);
-        a.insert(&[0, 0, 0, 1], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
+        a.set(&[0, 0, 0, 1], Complex64::new(1.0, 2.0));
+        a.set(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
+        a.set(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
 
         a.transpose(&Permutation::oneline([2, 0, 1, 3]));
         assert_eq!(a.shape(), vec![3, 4, 2, 5]);
@@ -688,9 +688,9 @@ mod tests {
     #[test]
     fn test_transpose_twice() {
         let mut a = Tensor::new(&[2, 3, 4]);
-        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
+        a.set(&[0, 0, 0], Complex64::new(1.0, 2.0));
+        a.set(&[0, 1, 3], Complex64::new(0.0, -1.0));
+        a.set(&[1, 2, 1], Complex64::new(-5.0, 0.0));
 
         a.transpose(&Permutation::oneline([2, 0, 1]));
         assert_eq!(a.shape(), vec![3, 4, 2]);
@@ -714,9 +714,9 @@ mod tests {
     #[test]
     fn test_raw_data_mut() {
         let mut a = Tensor::new(&[2, 3, 4]);
-        a.insert(&[0, 0, 0], Complex64::new(1.0, 2.0));
-        a.insert(&[0, 1, 3], Complex64::new(0.0, -1.0));
-        a.insert(&[1, 2, 1], Complex64::new(-5.0, 0.0));
+        a.set(&[0, 0, 0], Complex64::new(1.0, 2.0));
+        a.set(&[0, 1, 3], Complex64::new(0.0, -1.0));
+        a.set(&[1, 2, 1], Complex64::new(-5.0, 0.0));
         let mut b = a.clone();
 
         // Get the mutable reference to the raw data
@@ -814,11 +814,11 @@ mod tests {
         let mut c = Tensor::new(&[4]);
 
         // Insert data into B and C
-        b.insert(&[0, 0, 0], Complex64::new(1.0, 0.0));
-        b.insert(&[1, 2, 0], Complex64::new(2.0, 0.0));
-        b.insert(&[1, 2, 1], Complex64::new(3.0, 0.0));
-        c.insert(&[0], Complex64::new(4.0, 0.0));
-        c.insert(&[1], Complex64::new(5.0, 0.0));
+        b.set(&[0, 0, 0], Complex64::new(1.0, 0.0));
+        b.set(&[1, 2, 0], Complex64::new(2.0, 0.0));
+        b.set(&[1, 2, 1], Complex64::new(3.0, 0.0));
+        c.set(&[0], Complex64::new(4.0, 0.0));
+        c.set(&[1], Complex64::new(5.0, 0.0));
 
         // Contract the tensors
         let a = contract(&[0, 1], &[0, 1, 2], &b, &[2], &c);
@@ -955,11 +955,11 @@ mod tests {
         let mut c = Tensor::new(&[4]);
 
         // Insert data into B and C
-        b.insert(&[0, 0, 0], Complex64::new(1.0, 0.0));
-        b.insert(&[1, 2, 0], Complex64::new(2.0, 0.0));
-        b.insert(&[1, 2, 1], Complex64::new(3.0, 0.0));
-        c.insert(&[0], Complex64::new(4.0, 0.0));
-        c.insert(&[1], Complex64::new(5.0, 0.0));
+        b.set(&[0, 0, 0], Complex64::new(1.0, 0.0));
+        b.set(&[1, 2, 0], Complex64::new(2.0, 0.0));
+        b.set(&[1, 2, 1], Complex64::new(3.0, 0.0));
+        c.set(&[0], Complex64::new(4.0, 0.0));
+        c.set(&[1], Complex64::new(5.0, 0.0));
 
         // Contract the tensors
         let a = contract(&[1, 0], &[0, 1, 2], &b, &[2], &c);
