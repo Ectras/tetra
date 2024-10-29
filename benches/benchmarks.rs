@@ -8,7 +8,7 @@ use rand::{
 };
 use tetra::{contract, Tensor};
 
-fn random_tensor(shape: &[u64]) -> Tensor {
+fn random_tensor(shape: &[usize]) -> Tensor {
     let mut rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(-10.0, 10.0);
     let number_elements = Tensor::total_items(shape);

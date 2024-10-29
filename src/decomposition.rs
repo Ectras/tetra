@@ -21,7 +21,7 @@ impl Decomposition for Tensor {
         let [m, n] = self.shape()[..] else {
             panic!("Only able to decompose matrices")
         };
-        let min_dim = min(m, n) as usize;
+        let min_dim = min(m, n);
 
         // Leading dimension of `self`
         let lda = max(1, m);
@@ -38,7 +38,7 @@ impl Decomposition for Tensor {
         let mut work = vec![Complex64::new(0.0, 0.0); 1];
 
         // Double scratch space
-        let mut rwork = Vec::with_capacity(2 * n as usize);
+        let mut rwork = Vec::with_capacity(2 * n);
 
         // Return 0 if successful
         let mut info = 0;
@@ -88,7 +88,7 @@ impl Decomposition for Tensor {
 
         // copy out upper right triangular matrix to tensor `r`
         for j in 0..n {
-            for i in 0..min(min_dim as u64, j + 1) {
+            for i in 0..min(min_dim, j + 1) {
                 r_tensor.set(&[i, j], self_contiguous.get(&[i, j]));
             }
         }
@@ -125,15 +125,15 @@ impl Decomposition for Tensor {
         let [m, n] = self.shape()[..] else {
             panic!("Only able to decompose matrices")
         };
-        let min_dim = min(m, n) as usize;
-        let max_dim = max(m, n) as usize;
+        let min_dim = min(m, n);
+        let max_dim = max(m, n);
 
         // Leading dimension of `self`
         let lda = max(1, m);
         // Leading dimension of `u_tensor`
         let ldu = m;
         // Leading dimension of `vt_tensor`
-        let ldvt = min_dim as u64;
+        let ldvt = min_dim;
         // Using double vector as stand in until other Tensor types defined
         let mut s = Vec::with_capacity(min_dim);
 
@@ -209,8 +209,8 @@ impl Decomposition for Tensor {
         }
 
         // Fill in s_tensor
-        for i in 0..ldvt {
-            s_tensor.set(&[i, i], Complex64::new(s[i as usize], 0.0));
+        for (i, &si) in s.iter().enumerate().take(ldvt) {
+            s_tensor.set(&[i, i], Complex64::new(si, 0.0));
         }
 
         (u_tensor, s_tensor, vt_tensor)
