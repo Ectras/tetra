@@ -285,7 +285,8 @@ impl Tensor {
     }
 
     /// Returns whether the data is laid out contiguous in memory, i.e., the logical
-    /// order of elements matches the physical order in memory.
+    /// order of elements matches the physical order in memory. The order is
+    /// cloumn-major.
     fn is_contiguous(&self) -> bool {
         self.permutation == Permutation::one(self.permutation.len())
     }
@@ -332,6 +333,16 @@ impl Tensor {
         let owned_data = Arc::make_mut(&mut self.data);
         for val in owned_data {
             *val = val.conj();
+        }
+    }
+
+    /// Converts the tensor into a raw vector. This is zero-cost if the underlying
+    /// data is *contiguous* and *not shared*. Otherwise, the data is cloned.
+    fn into_raw(self) -> Vec<Complex64> {
+        if self.is_contiguous() {
+            Arc::unwrap_or_clone(self.data)
+        } else {
+            self.compute_transposed_data(&self.data)
         }
     }
 }
@@ -474,11 +485,11 @@ pub fn contract(
 
     // Get transposed A
     a.transpose(&Permutation::oneline(a_perm).inverse());
-    let a_data = a.elements();
+    let a_data = a.into_raw();
 
     // Get transposed B
     b.transpose(&Permutation::oneline(b_perm).inverse());
-    let b_data = b.elements();
+    let b_data = b.into_raw();
 
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
@@ -803,6 +814,63 @@ mod tests {
         let mut a = Tensor::new(&[]);
         a.raw_data_mut()[0] = Complex64::new(2.0, -3.0);
         assert_eq!(a.get(&[]), Complex64::new(2.0, -3.0));
+    }
+
+    #[test]
+    fn test_into_raw() {
+        let a_data = vec![
+            Complex64::new(3.0, 2.0),
+            Complex64::new(-4.0, -1.0),
+            Complex64::new(-5.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        ];
+        let a = Tensor::new_from_flat(&[2, 3], a_data.clone(), None);
+        assert_eq!(a.into_raw(), a_data);
+    }
+
+    #[test]
+    fn test_into_raw_transposed() {
+        let a_data = vec![
+            Complex64::new(3.0, 2.0),
+            Complex64::new(-4.0, -1.0),
+            Complex64::new(-5.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        ];
+        let a_transposed = vec![
+            a_data[0], a_data[3], a_data[1], a_data[4], a_data[2], a_data[5],
+        ];
+        let a = Tensor::new_from_flat(&[2, 3], a_data, Some(Layout::RowMajor));
+        assert_eq!(a.into_raw(), a_transposed);
+    }
+
+    #[test]
+    fn test_into_raw_shared() {
+        let a_data = vec![
+            Complex64::new(3.0, 2.0),
+            Complex64::new(-4.0, -1.0),
+            Complex64::new(-5.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        ];
+        let a = Tensor::new_from_flat(&[2, 3], a_data.clone(), None);
+        let b = a.clone();
+        let view = Arc::downgrade(&a.data);
+
+        // a and b share the data
+        assert_eq!(Arc::strong_count(&a.data), 2);
+
+        // Now consume a -> the data is still hold by b
+        assert_eq!(a.into_raw(), a_data);
+        assert_eq!(Arc::strong_count(&b.data), 1);
+
+        // Now consume b -> the data is dropped
+        assert_eq!(b.into_raw(), a_data);
+        assert!(view.upgrade().is_none());
     }
 
     #[test]
