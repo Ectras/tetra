@@ -285,7 +285,8 @@ impl Tensor {
     }
 
     /// Returns whether the data is laid out contiguous in memory, i.e., the logical
-    /// order of elements matches the physical order in memory.
+    /// order of elements matches the physical order in memory. The order is
+    /// cloumn-major.
     fn is_contiguous(&self) -> bool {
         self.permutation == Permutation::one(self.permutation.len())
     }
@@ -334,6 +335,16 @@ impl Tensor {
             *val = val.conj();
         }
     }
+
+    /// Converts the tensor into a raw vector. This is zero-cost if the underlying
+    /// data is *contiguous* and *not shared*. Otherwise, the data is cloned.
+    fn into_raw(self) -> Vec<Complex64> {
+        if self.is_contiguous() {
+            Arc::unwrap_or_clone(self.data)
+        } else {
+            self.compute_transposed_data(&self.data)
+        }
+    }
 }
 
 /// Contracts two tensors, returning the resulting tensor.
@@ -347,7 +358,7 @@ impl Tensor {
 /// # use tetra::contract;
 /// let a = Tensor::new(&[2, 3]);
 /// let b = Tensor::new(&[3, 4]);
-/// let c = contract(&[0, 2], &[0, 1], &a, &[1, 2], &b);
+/// let c = contract(&[0, 2], &[0, 1], a, &[1, 2], b);
 /// assert_eq!(c.shape(), vec![2, 4]);
 /// ```
 /// The following is equal to a scalar product of two vectors
@@ -356,7 +367,7 @@ impl Tensor {
 /// # use tetra::contract;
 /// let a = Tensor::new(&[3]);
 /// let b = Tensor::new(&[3]);
-/// let c = contract(&[], &[0], &a, &[0], &b);
+/// let c = contract(&[], &[0], a, &[0], b);
 /// ```
 ///
 /// # Panics
@@ -365,9 +376,9 @@ impl Tensor {
 pub fn contract(
     out_indices: &[usize],
     a_indices: &[usize],
-    a: &Tensor,
+    mut a: Tensor,
     b_indices: &[usize],
-    b: &Tensor,
+    mut b: Tensor,
 ) -> Tensor {
     assert_eq!(a_indices.len(), a.ndim());
     assert_eq!(b_indices.len(), b.ndim());
@@ -426,11 +437,6 @@ pub fn contract(
         }
     }
 
-    // Get transposed A
-    let mut a_view = a.clone();
-    a_view.transpose(&Permutation::oneline(a_perm).inverse());
-    let a_data = a_view.elements();
-
     // Compute permutation, total size of contracted dimensions and total size of
     // remaining dimensions for B.
     let mut b_remaining = 0;
@@ -451,11 +457,6 @@ pub fn contract(
             remaining.push(*idx);
         }
     }
-
-    // Get transposed B
-    let mut b_view = b.clone();
-    b_view.transpose(&Permutation::oneline(b_perm).inverse());
-    let b_data = b_view.elements();
 
     // Make sure the connecting matrix dimensions match
     assert_eq!(a_contracted_size, b_contracted_size);
@@ -481,6 +482,14 @@ pub fn contract(
             }
         }
     }
+
+    // Get transposed A
+    a.transpose(&Permutation::oneline(a_perm).inverse());
+    let a_data = a.into_raw();
+
+    // Get transposed B
+    b.transpose(&Permutation::oneline(b_perm).inverse());
+    let b_data = b.into_raw();
 
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
@@ -808,6 +817,63 @@ mod tests {
     }
 
     #[test]
+    fn test_into_raw() {
+        let a_data = vec![
+            Complex64::new(3.0, 2.0),
+            Complex64::new(-4.0, -1.0),
+            Complex64::new(-5.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        ];
+        let a = Tensor::new_from_flat(&[2, 3], a_data.clone(), None);
+        assert_eq!(a.into_raw(), a_data);
+    }
+
+    #[test]
+    fn test_into_raw_transposed() {
+        let a_data = vec![
+            Complex64::new(3.0, 2.0),
+            Complex64::new(-4.0, -1.0),
+            Complex64::new(-5.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        ];
+        let a_transposed = vec![
+            a_data[0], a_data[3], a_data[1], a_data[4], a_data[2], a_data[5],
+        ];
+        let a = Tensor::new_from_flat(&[2, 3], a_data, Some(Layout::RowMajor));
+        assert_eq!(a.into_raw(), a_transposed);
+    }
+
+    #[test]
+    fn test_into_raw_shared() {
+        let a_data = vec![
+            Complex64::new(3.0, 2.0),
+            Complex64::new(-4.0, -1.0),
+            Complex64::new(-5.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        ];
+        let a = Tensor::new_from_flat(&[2, 3], a_data.clone(), None);
+        let b = a.clone();
+        let view = Arc::downgrade(&a.data);
+
+        // a and b share the data
+        assert_eq!(Arc::strong_count(&a.data), 2);
+
+        // Now consume a -> the data is still hold by b
+        assert_eq!(a.into_raw(), a_data);
+        assert_eq!(Arc::strong_count(&b.data), 1);
+
+        // Now consume b -> the data is dropped
+        assert_eq!(b.into_raw(), a_data);
+        assert!(view.upgrade().is_none());
+    }
+
+    #[test]
     fn toy_contraction() {
         // Create tensors
         let mut b = Tensor::new(&[2, 3, 4]);
@@ -821,7 +887,7 @@ mod tests {
         c.set(&[1], Complex64::new(5.0, 0.0));
 
         // Contract the tensors
-        let a = contract(&[0, 1], &[0, 1, 2], &b, &[2], &c);
+        let a = contract(&[0, 1], &[0, 1, 2], b, &[2], c);
 
         // Check result in A
         assert_eq!(a.get(&[0, 0]), Complex64::new(4.0, 0.0));
@@ -845,7 +911,7 @@ mod tests {
             None,
         );
 
-        let a = contract(&[], &[0], &b, &[0], &c);
+        let a = contract(&[], &[0], b, &[0], c);
 
         let sol = Tensor::new_scalar(Complex64::new(14.0, 0.0));
         assert!(all_close(&a, &sol, 1e-12));
@@ -911,7 +977,7 @@ mod tests {
         let sol = Tensor::new_scalar(Complex64::new(-160.09, 54.36));
         let a = Tensor::new_from_flat(&a_shape, a_data, Some(Layout::RowMajor));
         let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
-        let c = contract(&[], &[2, 0, 1], &a, &[1, 2, 0], &b);
+        let c = contract(&[], &[2, 0, 1], a, &[1, 2, 0], b);
 
         assert!(all_close(&c, &sol, 1e-12));
     }
@@ -920,7 +986,7 @@ mod tests {
     fn test_contraction_scalars_only() {
         let a = Tensor::new_scalar(Complex64::new(5.0, 3.0));
         let b = Tensor::new_scalar(Complex64::new(-2.0, 4.0));
-        let c = contract(&[], &[], &a, &[], &b);
+        let c = contract(&[], &[], a, &[], b);
 
         let sol = Tensor::new_scalar(Complex64::new(-22.0, 14.0));
         assert!(all_close(&c, &sol, 1e-12));
@@ -944,7 +1010,7 @@ mod tests {
         let b = Tensor::new_scalar(Complex64::new(2.0, -1.0));
 
         let sol = Tensor::new_from_flat(&[2, 2], sol_data, None);
-        let c = contract(&[0, 1], &[0, 1], &a, &[], &b);
+        let c = contract(&[0, 1], &[0, 1], a, &[], b);
         assert!(all_close(&c, &sol, 1e-12));
     }
 
@@ -962,7 +1028,7 @@ mod tests {
         c.set(&[1], Complex64::new(5.0, 0.0));
 
         // Contract the tensors
-        let a = contract(&[1, 0], &[0, 1, 2], &b, &[2], &c);
+        let a = contract(&[1, 0], &[0, 1, 2], b, &[2], c);
 
         // Check result in A
         assert_eq!(a.get(&[0, 0]), Complex64::new(4.0, 0.0));
@@ -1002,7 +1068,7 @@ mod tests {
         let c = Tensor::new_from_flat(&[2, 2], c_data, None);
 
         // Contract the tensors
-        let out = contract(&[2], &[1, 0, 2], &b, &[0, 1], &c);
+        let out = contract(&[2], &[1, 0, 2], b, &[0, 1], c);
 
         assert!(all_close(&out, &solution, 1e-12));
     }
@@ -1053,7 +1119,7 @@ mod tests {
         let b = Tensor::new_from_flat(&[1, 3, 2, 1], b_data, None);
         let c = Tensor::new_from_flat(&[3, 2, 1, 3], c_data, None);
 
-        let out = contract(&[1, 4, 0], &[0, 1, 2, 3], &b, &[4, 2, 3, 1], &c);
+        let out = contract(&[1, 4, 0], &[0, 1, 2, 3], b, &[4, 2, 3, 1], c);
 
         assert!(all_close(&out, &solution, 1e-12));
     }
@@ -1113,7 +1179,7 @@ mod tests {
         let b = Tensor::new_from_flat(&[2, 2, 2, 2], b_data, Some(Layout::RowMajor));
         let c = Tensor::new_from_flat(&[2, 2, 2], c_data, Some(Layout::RowMajor));
 
-        let out = contract(&[1, 3, 2, 0], &[1, 3, 0, 2], &b, &[2, 0, 3], &c);
+        let out = contract(&[1, 3, 2, 0], &[1, 3, 0, 2], b, &[2, 0, 3], c);
         assert!(all_close(&out, &solution, 1e-12));
     }
 
@@ -1373,8 +1439,8 @@ mod tests {
         let d = Tensor::new_from_flat(&[6, 5, 1], d_data, None);
 
         // Contract the tensors
-        let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], &b, &[5, 2, 4, 1], &c);
-        let out2 = contract(&[3], &[5, 4, 0], &d, &[5, 3, 0, 4], &out1);
+        let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], b, &[5, 2, 4, 1], c);
+        let out2 = contract(&[3], &[5, 4, 0], d, &[5, 3, 0, 4], out1);
 
         assert!(all_close(&out2, &solution, 1e-12));
     }

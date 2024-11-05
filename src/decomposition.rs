@@ -240,7 +240,7 @@ mod tests {
         let sol = a.clone();
 
         let (q, r) = a.qr();
-        let out = contract(&[0, 2], &[0, 1], &q, &[1, 2], &r);
+        let out = contract(&[0, 2], &[0, 1], q, &[1, 2], r);
 
         assert!(all_close(&out, &sol, 1e-14));
     }
@@ -258,8 +258,8 @@ mod tests {
         let sol = a.clone();
 
         let (u, s, vt) = a.svd();
-        let us = contract(&[0, 2], &[0, 1], &u, &[1, 2], &s);
-        let out = contract(&[0, 2], &[0, 1], &us, &[1, 2], &vt);
+        let us = contract(&[0, 2], &[0, 1], u, &[1, 2], s);
+        let out = contract(&[0, 2], &[0, 1], us, &[1, 2], vt);
 
         assert!(all_close(&out, &sol, 1e-14));
     }
