@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use itertools::Itertools;
 use num_complex::Complex64;
 use rand::{
@@ -21,9 +21,9 @@ fn random_tensor(shape: &[u64]) -> Tensor {
 #[inline]
 #[allow(clippy::too_many_arguments)]
 fn consecutive_contraction(
-    b: &Tensor,
-    c: &Tensor,
-    d: &Tensor,
+    b: Tensor,
+    c: Tensor,
+    d: Tensor,
     b_indices: &[usize],
     c_indices: &[usize],
     out1_indices: &[usize],
@@ -31,7 +31,7 @@ fn consecutive_contraction(
     out2_indices: &[usize],
 ) -> Tensor {
     let out1 = contract(out1_indices, b_indices, b, c_indices, c);
-    contract(out2_indices, d_indices, d, out1_indices, &out1)
+    contract(out2_indices, d_indices, d, out1_indices, out1)
 }
 
 pub fn contraction_benchmark(criterion: &mut Criterion) {
@@ -42,18 +42,22 @@ pub fn contraction_benchmark(criterion: &mut Criterion) {
 
     let mut group = criterion.benchmark_group("contractions");
     group.bench_function("contraction", |bench| {
-        bench.iter(|| {
-            consecutive_contraction(
-                &b,
-                &c,
-                &d,
-                black_box(&[0, 1, 2, 3]),
-                black_box(&[5, 2, 4, 1]),
-                black_box(&[5, 3, 0, 4]),
-                black_box(&[5, 4, 0]),
-                black_box(&[3]),
-            )
-        });
+        bench.iter_batched(
+            || (b.clone(), c.clone(), d.clone()),
+            |(b, c, d)| {
+                consecutive_contraction(
+                    b,
+                    c,
+                    d,
+                    black_box(&[0, 1, 2, 3]),
+                    black_box(&[5, 2, 4, 1]),
+                    black_box(&[5, 3, 0, 4]),
+                    black_box(&[5, 4, 0]),
+                    black_box(&[3]),
+                )
+            },
+            BatchSize::SmallInput,
+        );
     });
     group.finish();
 }
