@@ -302,6 +302,16 @@ impl Tensor {
         }
     }
 
+    /// Extracts the data from the tensor. If the data is contiguous, it is returned
+    /// as-is. Otherwise, a contiguous copy is made and returned.
+    fn into_elements(self) -> Arc<Vec<Complex64>> {
+        if self.is_contiguous() {
+            self.data
+        } else {
+            Arc::new(self.compute_transposed_data(&self.data))
+        }
+    }
+
     /// Gets a mutable reference to the raw (i.e. flat) vector data. If the data is
     /// shared, it is cloned, so modifications are not reflected in other tensors.
     /// The data is not guaranteed to be contiguous.
@@ -333,16 +343,6 @@ impl Tensor {
         let owned_data = Arc::make_mut(&mut self.data);
         for val in owned_data {
             *val = val.conj();
-        }
-    }
-
-    /// Converts the tensor into a raw vector. This is zero-cost if the underlying
-    /// data is *contiguous* and *not shared*. Otherwise, the data is cloned.
-    fn into_raw(self) -> Vec<Complex64> {
-        if self.is_contiguous() {
-            Arc::unwrap_or_clone(self.data)
-        } else {
-            self.compute_transposed_data(&self.data)
         }
     }
 }
@@ -485,11 +485,11 @@ pub fn contract(
 
     // Get transposed A
     a.transpose(&Permutation::oneline(a_perm).inverse());
-    let a_data = a.into_raw();
+    let a_data = a.into_elements();
 
     // Get transposed B
     b.transpose(&Permutation::oneline(b_perm).inverse());
-    let b_data = b.into_raw();
+    let b_data = b.into_elements();
 
     // Determine chunk size when performing hyperedge contraction
     let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
@@ -817,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn test_into_raw() {
+    fn test_into_elements() {
         let a_data = vec![
             Complex64::new(3.0, 2.0),
             Complex64::new(-4.0, -1.0),
@@ -827,11 +827,11 @@ mod tests {
             Complex64::new(0.0, 0.0),
         ];
         let a = Tensor::new_from_flat(&[2, 3], a_data.clone(), None);
-        assert_eq!(a.into_raw(), a_data);
+        assert_eq!(*a.into_elements(), a_data);
     }
 
     #[test]
-    fn test_into_raw_transposed() {
+    fn test_into_elements_transposed() {
         let a_data = vec![
             Complex64::new(3.0, 2.0),
             Complex64::new(-4.0, -1.0),
@@ -844,12 +844,12 @@ mod tests {
             a_data[0], a_data[3], a_data[1], a_data[4], a_data[2], a_data[5],
         ];
         let a = Tensor::new_from_flat(&[2, 3], a_data, Some(Layout::RowMajor));
-        assert_eq!(a.into_raw(), a_transposed);
+        assert_eq!(*a.into_elements(), a_transposed);
     }
 
     #[test]
-    fn test_into_raw_shared() {
-        let a_data = vec![
+    fn test_into_elements_shared() {
+        let data = vec![
             Complex64::new(3.0, 2.0),
             Complex64::new(-4.0, -1.0),
             Complex64::new(-5.0, 2.0),
@@ -857,19 +857,29 @@ mod tests {
             Complex64::new(2.0, 0.0),
             Complex64::new(0.0, 0.0),
         ];
-        let a = Tensor::new_from_flat(&[2, 3], a_data.clone(), None);
+        let a = Tensor::new_from_flat(&[2, 3], data.clone(), None);
         let b = a.clone();
         let view = Arc::downgrade(&a.data);
 
         // a and b share the data
         assert_eq!(Arc::strong_count(&a.data), 2);
 
-        // Now consume a -> the data is still hold by b
-        assert_eq!(a.into_raw(), a_data);
+        // Now consume a and drop the reference
+        {
+            let a_data = a.into_elements();
+            assert_eq!(*a_data, data);
+        }
+
+        // Only b holds the data now
         assert_eq!(Arc::strong_count(&b.data), 1);
 
-        // Now consume b -> the data is dropped
-        assert_eq!(b.into_raw(), a_data);
+        // Now consume b and drop the reference
+        {
+            let b_data = b.into_elements();
+            assert_eq!(*b_data, data);
+        }
+
+        // The data is now deallocated
         assert!(view.upgrade().is_none());
     }
 
