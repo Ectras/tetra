@@ -316,6 +316,7 @@ impl Tensor {
     /// shared, it is cloned, so modifications are not reflected in other tensors.
     /// The data is not guaranteed to be contiguous.
     fn raw_data_mut(&mut self) -> &mut Vec<Complex64> {
+        assert!(self.is_contiguous());
         Arc::make_mut(&mut self.data)
     }
 
