@@ -2,7 +2,6 @@ use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 extern crate intel_mkl_src;
 
-use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
@@ -16,6 +15,67 @@ pub mod serde;
 pub mod random;
 
 pub mod decomposition;
+
+mod ffi {
+    use std::ffi::{c_char, c_double, c_int};
+
+    /// ZGEMM3M function from Intel MKL. This is a wrapper around the actual function
+    /// with easier to use types.
+    pub unsafe fn zgemm3m_pub(
+        transa: u8,
+        transb: u8,
+        m: i32,
+        n: i32,
+        k: i32,
+        alpha: *const c_double_complex,
+        a: *const c_double_complex,
+        lda: c_int,
+        b: *const c_double_complex,
+        ldb: c_int,
+        beta: *const c_double_complex,
+        c: *mut c_double_complex,
+        ldc: c_int,
+    ) {
+        zgemm3m(
+            &(transa as _),
+            &(transb as _),
+            &m,
+            &n,
+            &k,
+            alpha,
+            a,
+            &lda,
+            b,
+            &ldb,
+            beta,
+            c,
+            &ldc,
+        );
+    }
+
+    /// A complex number with 64-bit parts.
+    #[allow(bad_style)]
+    type c_double_complex = [c_double; 2];
+
+    extern "C" {
+        /// Signature of Intel MKL's ZGEMM3M function.
+        fn zgemm3m(
+            transa: *const c_char,
+            transb: *const c_char,
+            m: *const c_int,
+            n: *const c_int,
+            k: *const c_int,
+            alpha: *const c_double_complex,
+            a: *const c_double_complex,
+            lda: *const c_int,
+            b: *const c_double_complex,
+            ldb: *const c_int,
+            beta: *const c_double_complex,
+            c: *mut c_double_complex,
+            ldc: *const c_int,
+        );
+    }
+}
 
 /// The data layout of a tensor. For row-major, the last index is the fastest running
 /// one. This does not necessarily correspond to the underlying memory layout, as it
@@ -551,10 +611,9 @@ pub fn contract(
                 );
 
                 // Perform matrix-matrix multiplication
-                cblas_zgemm(
-                    CBLAS_LAYOUT::CblasColMajor,
-                    CBLAS_TRANSPOSE::CblasNoTrans,
-                    CBLAS_TRANSPOSE::CblasNoTrans,
+                ffi::zgemm3m_pub(
+                    b'N',
+                    b'N',
                     a_remaining_size.try_into().unwrap(),
                     b_remaining_size.try_into().unwrap(),
                     b_contracted_size.try_into().unwrap(),
