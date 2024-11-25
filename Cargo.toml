@@ -24,7 +24,7 @@ itertools = "0.13.0"
 permutation = "0.4.1"
 serde = { version = "1.0.203", optional = true }
 rand = { version = "0.8.5", optional = true }
-intel-mkl-src = { version = "0.8.1", features = ["mkl-static-lp64-iomp"] }
+intel-mkl-src = { version = "0.8.1", features = ["mkl-static-lp64-seq"] }
 
 [dev-dependencies]
 criterion = "0.5.1"
