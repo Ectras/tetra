@@ -31,7 +31,7 @@ pub enum Layout {
 #[derive(Clone, Debug)]
 pub struct Tensor {
     /// The shape of the tensor.
-    shape: Vec<u64>,
+    shape: Vec<usize>,
 
     /// The current permutation of dimensions.
     permutation: Permutation,
@@ -56,7 +56,7 @@ impl Tensor {
     /// let matrix = Tensor::new(&[3, 4]);
     /// ```
     #[must_use]
-    pub fn new(dimensions: &[u64]) -> Self {
+    pub fn new(dimensions: &[usize]) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
 
@@ -93,7 +93,11 @@ impl Tensor {
     /// assert!(all_close(&row_major, &col_major, 1e-12));
     /// ```
     #[must_use]
-    pub fn new_from_flat(dimensions: &[u64], data: Vec<Complex64>, layout: Option<Layout>) -> Self {
+    pub fn new_from_flat(
+        dimensions: &[usize],
+        data: Vec<Complex64>,
+        layout: Option<Layout>,
+    ) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
         assert_eq!(Self::total_items(dimensions), data.len());
@@ -129,7 +133,7 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if any dimension is zero
-    fn new_uninitialized(dimensions: &[u64]) -> Self {
+    fn new_uninitialized(dimensions: &[usize]) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
 
@@ -146,6 +150,9 @@ impl Tensor {
 
     /// Computes the total number of items specified by `dimensions`.
     ///
+    /// # Panics
+    /// - Panics if the result overflows (in debug *and* release mode)
+    ///
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
@@ -155,8 +162,10 @@ impl Tensor {
     /// // A scalar has 1 item:
     /// assert_eq!(Tensor::total_items(&[]), 1);
     /// ```
-    pub fn total_items(dimensions: &[u64]) -> usize {
-        dimensions.iter().product::<u64>().try_into().unwrap()
+    pub fn total_items(dimensions: &[usize]) -> usize {
+        dimensions
+            .iter()
+            .fold(1, |acc, &x| acc.checked_mul(x).unwrap())
     }
 
     /// Computes the flat index given the accessed coordinates.
@@ -164,7 +173,7 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if the coordinates are invalid
-    fn compute_index(&self, coordinates: &[u64]) -> usize {
+    fn compute_index(&self, coordinates: &[usize]) -> usize {
         // Borrow the data
         assert_eq!(coordinates.len(), self.shape.len());
 
@@ -178,8 +187,8 @@ impl Tensor {
             assert!(coords[i] < self.shape[i]);
 
             // Accumulate index
-            let c: usize = coords[i].try_into().unwrap();
-            let s: usize = self.shape[i].try_into().unwrap();
+            let c = coords[i];
+            let s = self.shape[i];
             if i == coords.len() - 1 {
                 idx = c;
             } else {
@@ -190,7 +199,7 @@ impl Tensor {
     }
 
     /// Sets the value at the given position.
-    pub fn set(&mut self, coordinates: &[u64], value: Complex64) {
+    pub fn set(&mut self, coordinates: &[usize], value: Complex64) {
         let idx = self.compute_index(coordinates);
         let data = Arc::make_mut(&mut self.data);
         data[idx] = value;
@@ -198,7 +207,7 @@ impl Tensor {
 
     /// Gets the value at the given position.
     #[must_use]
-    pub fn get(&self, coordinates: &[u64]) -> Complex64 {
+    pub fn get(&self, coordinates: &[usize]) -> Complex64 {
         let idx = self.compute_index(coordinates);
         self.data[idx]
     }
@@ -215,7 +224,7 @@ impl Tensor {
     /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
     /// ```
     #[must_use]
-    pub fn shape(&self) -> Vec<u64> {
+    pub fn shape(&self) -> Vec<usize> {
         self.permutation.apply_slice(&self.shape)
     }
 
@@ -239,11 +248,11 @@ impl Tensor {
     /// assert_eq!(t.size(Some(2)), 3);
     /// ```
     #[must_use]
-    pub fn size(&self, axis: Option<usize>) -> u64 {
+    pub fn size(&self, axis: Option<usize>) -> usize {
         if let Some(axis) = axis {
             self.shape[self.permutation.apply_inv_idx(axis)]
         } else {
-            self.data.len().try_into().unwrap()
+            self.data.len()
         }
     }
 
@@ -493,8 +502,8 @@ pub fn contract(
     let b_data = b.into_elements();
 
     // Determine chunk size when performing hyperedge contraction
-    let a_chunk_size = (a_contracted_size * a_remaining_size) as usize;
-    let b_chunk_size = (b_contracted_size * b_remaining_size) as usize;
+    let a_chunk_size = a_contracted_size * a_remaining_size;
+    let b_chunk_size = b_contracted_size * b_remaining_size;
     let c_chunk_size = Tensor::total_items(&c_shape);
 
     for (hyperedge_size, hyperedge_index) in zip(&hyperedge_size, &hyperedge_order) {
@@ -523,11 +532,11 @@ pub fn contract(
 
         for dim in hyperedge_iter {
             let mut index: usize = 0;
-            for (i, size) in zip(dim, &hyperedge_size) {
-                index = (index + i as usize) * (*size) as usize;
+            for (i, &size) in zip(dim, &hyperedge_size) {
+                index = (index + i) * size;
             }
             if !hyperedge_size.is_empty() {
-                index /= hyperedge_size[hyperedge_size.len() - 1] as usize;
+                index /= hyperedge_size[hyperedge_size.len() - 1];
             }
 
             // Compute ZGEMM

@@ -4,7 +4,7 @@ use crate::Tensor;
 
 /// Generates a random tensor with the given shape from the standard normal
 /// distribution.
-pub fn random_tensor<R>(shape: &[u64], rng: &mut R) -> Tensor
+pub fn random_tensor<R>(shape: &[usize], rng: &mut R) -> Tensor
 where
     R: Rng + ?Sized,
 {

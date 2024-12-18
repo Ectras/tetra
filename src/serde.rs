@@ -254,6 +254,7 @@ mod tests {
         ];
         let tensor = Tensor::new_from_flat(&[2, 2, 1], a_data, Some(Layout::RowMajor));
 
+        // Hint: Serde always serializes usize as U64
         assert_tokens(
             &TensorEqWrapper(tensor),
             &[
