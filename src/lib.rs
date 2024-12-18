@@ -2,6 +2,7 @@ use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 extern crate intel_mkl_src;
 
+use cblas_sys::{CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
@@ -17,64 +18,36 @@ pub mod random;
 pub mod decomposition;
 
 mod ffi {
-    use std::ffi::{c_char, c_double, c_int};
+    use std::ffi::c_int;
 
-    /// ZGEMM3M function from Intel MKL. This is a wrapper around the actual function
-    /// with easier to use types.
-    #[allow(clippy::too_many_arguments)]
-    pub unsafe fn zgemm3m_pub(
-        transa: u8,
-        transb: u8,
-        m: i32,
-        n: i32,
-        k: i32,
-        alpha: *const c_double_complex,
-        a: *const c_double_complex,
-        lda: c_int,
-        b: *const c_double_complex,
-        ldb: c_int,
-        beta: *const c_double_complex,
-        c: *mut c_double_complex,
-        ldc: c_int,
-    ) {
-        zgemm3m(
-            &(transa as _),
-            &(transb as _),
-            &m,
-            &n,
-            &k,
-            alpha,
-            a,
-            &lda,
-            b,
-            &ldb,
-            beta,
-            c,
-            &ldc,
-        );
-    }
-
-    /// A complex number with 64-bit parts.
-    #[allow(bad_style)]
-    type c_double_complex = [c_double; 2];
+    use cblas_sys::{c_double_complex, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 
     extern "C" {
-        /// Signature of Intel MKL's ZGEMM3M function. This must match the actual
-        /// function signature for linking to work.
-        fn zgemm3m(
-            transa: *const c_char,
-            transb: *const c_char,
-            m: *const c_int,
-            n: *const c_int,
-            k: *const c_int,
+        /// Matrix-matrix multiplication of two complex double matrices. This variant
+        /// present in MKL uses less multiplications than the standard BLAS routine
+        /// (ZGEMM).
+        ///
+        /// Reference: <https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-c/2025-0/cblas-gemm3m.html>.
+        ///
+        /// The function signature must match the C code for linking to work. For
+        /// reference, look at the ZGEMM signature in `cblas-sys`. Note that MKL uses
+        /// either 32-bit integers (`lp64`) or 64-bit integers (`ilp64`) for indexing.
+        /// If compiled with the `ilp64` feature, all `c_int` types should be replaced.
+        pub fn cblas_zgemm3m(
+            layout: CBLAS_LAYOUT,
+            transa: CBLAS_TRANSPOSE,
+            transb: CBLAS_TRANSPOSE,
+            m: c_int,
+            n: c_int,
+            k: c_int,
             alpha: *const c_double_complex,
             a: *const c_double_complex,
-            lda: *const c_int,
+            lda: c_int,
             b: *const c_double_complex,
-            ldb: *const c_int,
+            ldb: c_int,
             beta: *const c_double_complex,
             c: *mut c_double_complex,
-            ldc: *const c_int,
+            ldc: c_int,
         );
     }
 }
@@ -613,9 +586,10 @@ pub fn contract(
                 );
 
                 // Perform matrix-matrix multiplication
-                ffi::zgemm3m_pub(
-                    b'N',
-                    b'N',
+                ffi::cblas_zgemm3m(
+                    CBLAS_LAYOUT::CblasColMajor,
+                    CBLAS_TRANSPOSE::CblasNoTrans,
+                    CBLAS_TRANSPOSE::CblasNoTrans,
                     a_remaining_size.try_into().unwrap(),
                     b_remaining_size.try_into().unwrap(),
                     b_contracted_size.try_into().unwrap(),

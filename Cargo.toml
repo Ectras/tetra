@@ -25,6 +25,7 @@ permutation = "0.4.1"
 serde = { version = "1.0.203", optional = true }
 rand = { version = "0.8.5", optional = true }
 intel-mkl-src = { version = "0.8.1", features = ["mkl-static-lp64-seq"] }
+cblas-sys = "0.1.4"
 
 [dev-dependencies]
 criterion = "0.5.1"
