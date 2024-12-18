@@ -21,6 +21,7 @@ mod ffi {
 
     /// ZGEMM3M function from Intel MKL. This is a wrapper around the actual function
     /// with easier to use types.
+    #[allow(clippy::too_many_arguments)]
     pub unsafe fn zgemm3m_pub(
         transa: u8,
         transb: u8,
@@ -58,7 +59,8 @@ mod ffi {
     type c_double_complex = [c_double; 2];
 
     extern "C" {
-        /// Signature of Intel MKL's ZGEMM3M function.
+        /// Signature of Intel MKL's ZGEMM3M function. This must match the actual
+        /// function signature for linking to work.
         fn zgemm3m(
             transa: *const c_char,
             transb: *const c_char,
