@@ -1,9 +1,8 @@
 use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
-#[cfg(feature = "openblas")]
-extern crate openblas_src;
+extern crate intel_mkl_src;
 
-use cblas_sys::{cblas_zgemm, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
+use cblas_sys::{CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
@@ -17,6 +16,41 @@ pub mod serde;
 pub mod random;
 
 pub mod decomposition;
+
+mod ffi {
+    use std::ffi::c_int;
+
+    use cblas_sys::{c_double_complex, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
+
+    extern "C" {
+        /// Matrix-matrix multiplication of two complex double matrices. This variant
+        /// present in MKL uses less multiplications than the standard BLAS routine
+        /// (ZGEMM).
+        ///
+        /// Reference: <https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-c/2025-0/cblas-gemm3m.html>.
+        ///
+        /// The function signature must match the C code for linking to work. For
+        /// reference, look at the ZGEMM signature in `cblas-sys`. Note that MKL uses
+        /// either 32-bit integers (`lp64`) or 64-bit integers (`ilp64`) for indexing.
+        /// If compiled with the `ilp64` feature, all `c_int` types should be replaced.
+        pub fn cblas_zgemm3m(
+            layout: CBLAS_LAYOUT,
+            transa: CBLAS_TRANSPOSE,
+            transb: CBLAS_TRANSPOSE,
+            m: c_int,
+            n: c_int,
+            k: c_int,
+            alpha: *const c_double_complex,
+            a: *const c_double_complex,
+            lda: c_int,
+            b: *const c_double_complex,
+            ldb: c_int,
+            beta: *const c_double_complex,
+            c: *mut c_double_complex,
+            ldc: c_int,
+        );
+    }
+}
 
 /// The data layout of a tensor. For row-major, the last index is the fastest running
 /// one. This does not necessarily correspond to the underlying memory layout, as it
@@ -552,7 +586,7 @@ pub fn contract(
                 );
 
                 // Perform matrix-matrix multiplication
-                cblas_zgemm(
+                ffi::cblas_zgemm3m(
                     CBLAS_LAYOUT::CblasColMajor,
                     CBLAS_TRANSPOSE::CblasNoTrans,
                     CBLAS_TRANSPOSE::CblasNoTrans,
