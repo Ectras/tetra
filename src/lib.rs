@@ -359,16 +359,9 @@ impl Tensor {
     /// Gets a mutable reference to the raw (i.e. flat) vector data. If the data is
     /// shared, it is cloned, so modifications are not reflected in other tensors.
     /// The data is not guaranteed to be contiguous.
-    fn raw_data_mut(&mut self) -> &mut Vec<Complex64> {
-        assert!(self.is_contiguous());
-        Arc::make_mut(&mut self.data)
-    }
-
-    /// Gets a reference to the raw (i.e. flat) vector data. This data might not be
-    /// in the logical order of the tensor.
     #[inline]
-    pub fn raw_data(&self) -> &Vec<Complex64> {
-        &self.data
+    pub fn raw_data_mut(&mut self) -> &mut Vec<Complex64> {
+        Arc::make_mut(&mut self.data)
     }
 
     /// Conjugates the tensor in-place. If the data is shared, it will be copied
