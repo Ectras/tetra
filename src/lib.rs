@@ -364,6 +364,13 @@ impl Tensor {
         Arc::make_mut(&mut self.data)
     }
 
+    /// Gets a reference to the raw (i.e. flat) vector data. This data might not be
+    /// in the logical order of the tensor.
+    #[inline]
+    pub fn raw_data(&self) -> &Vec<Complex64> {
+        &self.data
+    }
+
     /// Conjugates the tensor in-place. If the data is shared, it will be copied
     /// first.
     ///
