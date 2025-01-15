@@ -15,7 +15,7 @@ pub mod serde;
 #[cfg(feature = "rand")]
 pub mod random;
 
-pub mod decomposition;
+// pub mod decomposition;
 
 mod ffi {
     use std::ffi::c_int;
