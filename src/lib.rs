@@ -18,7 +18,7 @@ pub mod random;
 // pub mod decomposition;
 
 mod ffi {
-    use std::ffi::c_int;
+    use std::ffi::c_longlong;
 
     use cblas_sys::{c_double_complex, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 
@@ -37,17 +37,17 @@ mod ffi {
             layout: CBLAS_LAYOUT,
             transa: CBLAS_TRANSPOSE,
             transb: CBLAS_TRANSPOSE,
-            m: c_int,
-            n: c_int,
-            k: c_int,
+            m: c_longlong,
+            n: c_longlong,
+            k: c_longlong,
             alpha: *const c_double_complex,
             a: *const c_double_complex,
-            lda: c_int,
+            lda: c_longlong,
             b: *const c_double_complex,
-            ldb: c_int,
+            ldb: c_longlong,
             beta: *const c_double_complex,
             c: *mut c_double_complex,
-            ldc: c_int,
+            ldc: c_longlong,
         );
     }
 }
