@@ -433,7 +433,7 @@ impl Tensor {
         let slice_size = Tensor::total_items(new_shape);
         let slice_data = data[index * slice_size..(index + 1) * slice_size].to_vec();
 
-        Tensor::new_from_flat(&new_shape, slice_data, None)
+        Tensor::new_from_flat(new_shape, slice_data, None)
     }
 }
 
