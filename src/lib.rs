@@ -298,6 +298,7 @@ impl Tensor {
     /// assert_eq!(Tensor::new(&[1, 2]).ndim(), 2);
     /// assert_eq!(Tensor::new(&[1, 3, 6, 5]).ndim(), 4);
     /// ```
+    #[inline]
     #[must_use]
     pub fn ndim(&self) -> usize {
         self.shape.len()
@@ -358,8 +359,8 @@ impl Tensor {
     /// Gets a mutable reference to the raw (i.e. flat) vector data. If the data is
     /// shared, it is cloned, so modifications are not reflected in other tensors.
     /// The data is not guaranteed to be contiguous.
-    fn raw_data_mut(&mut self) -> &mut Vec<Complex64> {
-        assert!(self.is_contiguous());
+    #[inline]
+    pub fn raw_data_mut(&mut self) -> &mut Vec<Complex64> {
         Arc::make_mut(&mut self.data)
     }
 
@@ -388,6 +389,51 @@ impl Tensor {
         for val in owned_data {
             *val = val.conj();
         }
+    }
+
+    /// Slices the tensor along the given `axis` at the given `index`. Returns the
+    /// slice as a new tensor.
+    ///
+    /// Examples for numpy notation:
+    /// - `slice(0, 1)` is equivalent to `tensor[1, :, :]`
+    /// - `slice(1, 0)` is equivalent to `tensor[:, 0, :]`
+    /// - `slice(2, 2)` is equivalent to `tensor[:, :, 2]`
+    ///
+    /// # Examples
+    /// ```
+    /// # use num_complex::Complex64;
+    /// # use tetra::Tensor;
+    /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
+    ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
+    ///     Complex64::new(2.0, 2.0), Complex64::new(0.0, 4.0)
+    /// ], None);
+    /// let slice = tensor.slice(0, 1); // in numpy notation this would be tensor[1, :]
+    /// ```
+    pub fn slice(&self, axis: usize, index: usize) -> Self {
+        assert!(self.ndim() > 0, "Cannot slice a scalar");
+
+        // Get permutation to make the axis the last one
+        let last_index = self.ndim() - 1;
+        let initial_perm = (0..self.ndim())
+            .map(|i| match i.cmp(&axis) {
+                std::cmp::Ordering::Less => i,
+                std::cmp::Ordering::Equal => last_index,
+                std::cmp::Ordering::Greater => i - 1,
+            })
+            .collect_vec();
+        let perm_move_back = Permutation::oneline(initial_perm);
+
+        // Get a transposed copy of the tensor (data is shared)
+        let mut transposed = self.clone();
+        transposed.transpose(&perm_move_back);
+
+        // Get the slice
+        let new_shape = &transposed.shape()[..last_index];
+        let data = transposed.elements();
+        let slice_size = Tensor::total_items(new_shape);
+        let slice_data = data[index * slice_size..(index + 1) * slice_size].to_vec();
+
+        Tensor::new_from_flat(new_shape, slice_data, None)
     }
 }
 
@@ -925,6 +971,64 @@ mod tests {
 
         // The data is now deallocated
         assert!(view.upgrade().is_none());
+    }
+
+    fn int_to_complex(x: Vec<i32>) -> Vec<Complex64> {
+        x.into_iter()
+            .map(|x| Complex64::new(x as f64, 0.0))
+            .collect()
+    }
+
+    #[test]
+    fn test_slice() {
+        let data = int_to_complex(vec![
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+        ]);
+        let matrix = Tensor::new_from_flat(&[2, 3, 4], data, None);
+
+        // Slicing axis 0, index 0 => data[0, :, :]
+        let ref_data_slice_0 = int_to_complex(vec![0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]);
+        let slice = matrix.slice(0, 0);
+        assert_eq!(slice.shape(), vec![3, 4]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_0);
+
+        // Slicing axis 1, index 2 => data[:, 2, :]
+        let ref_data_slice_1 = int_to_complex(vec![4, 5, 10, 11, 16, 17, 22, 23]);
+        let slice = matrix.slice(1, 2);
+        assert_eq!(slice.shape(), vec![2, 4]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_1);
+
+        // Slicing axis 2, index 1 => data[:, :, 1]
+        let ref_data_slice_2 = int_to_complex(vec![6, 7, 8, 9, 10, 11]);
+        let slice = matrix.slice(2, 1);
+        assert_eq!(slice.shape(), vec![2, 3]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_2);
+    }
+
+    #[test]
+    fn test_slice_rowmajor() {
+        let data = int_to_complex(vec![
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+        ]);
+        let matrix = Tensor::new_from_flat(&[2, 3, 4], data, Some(Layout::RowMajor));
+
+        // Slicing axis 0, index 0 => data[0, :, :]
+        let ref_data_slice_0 = int_to_complex(vec![0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11]);
+        let slice = matrix.slice(0, 0);
+        assert_eq!(slice.shape(), vec![3, 4]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_0);
+
+        // Slicing axis 1, index 2 => data[:, 2, :]
+        let ref_data_slice_1 = int_to_complex(vec![8, 20, 9, 21, 10, 22, 11, 23]);
+        let slice = matrix.slice(1, 2);
+        assert_eq!(slice.shape(), vec![2, 4]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_1);
+
+        // Slicing axis 2, index 1 => data[:, :, 1]
+        let ref_data_slice_2 = int_to_complex(vec![1, 13, 5, 17, 9, 21]);
+        let slice = matrix.slice(2, 1);
+        assert_eq!(slice.shape(), vec![2, 3]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_2);
     }
 
     #[test]
