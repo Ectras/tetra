@@ -223,18 +223,18 @@ mod tests {
     use crate::{all_close, contract, Tensor};
     use itertools::Itertools;
     use num_complex::Complex64;
-    use rand::distributions::{Distribution, Uniform};
+    use rand::distr::{Distribution, Uniform};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
     #[test]
     fn test_qr() {
         let mut rng = StdRng::seed_from_u64(23);
-        let die = Uniform::from(4..10);
+        let die = Uniform::try_from(4..10).unwrap();
 
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
         let data = (0..Tensor::total_items(tensor_dims))
-            .map(|_| Complex64::new(rng.gen(), 0.0))
+            .map(|_| Complex64::new(rng.random(), 0.0))
             .collect_vec();
         let a = Tensor::new_from_flat(tensor_dims, data, None);
         let sol = a.clone();
@@ -248,11 +248,11 @@ mod tests {
     #[test]
     fn test_svd() {
         let mut rng = StdRng::seed_from_u64(23);
-        let die = Uniform::from(4..10);
+        let die = Uniform::try_from(4..10).unwrap();
 
         let tensor_dims = &[die.sample(&mut rng), die.sample(&mut rng)];
         let data = (0..Tensor::total_items(tensor_dims))
-            .map(|_| Complex64::new(rng.gen(), 0.0))
+            .map(|_| Complex64::new(rng.random(), 0.0))
             .collect_vec();
         let a = Tensor::new_from_flat(tensor_dims, data, None);
         let sol = a.clone();
