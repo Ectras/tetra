@@ -572,7 +572,7 @@ pub fn contract(
         b_uncontracted_size,
         contracted_size,
         c_shape,
-    } = compute_contraction_permutation(&a_indices, &a.shape(), &b_indices, &b.shape());
+    } = compute_contraction_permutation(a_indices, &a.shape(), b_indices, &b.shape());
 
     // Get transposed A
     a.transpose(&Permutation::oneline(a_permutation).inverse());
