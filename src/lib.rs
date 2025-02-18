@@ -62,6 +62,7 @@ pub enum Layout {
 }
 
 /// A tensor of arbitrary dimensions containing [`Complex64`] values.
+#[allow(clippy::len_without_is_empty)]
 #[derive(Clone, Debug)]
 pub struct Tensor {
     /// The shape of the tensor.
@@ -196,6 +197,7 @@ impl Tensor {
     /// // A scalar has 1 item:
     /// assert_eq!(Tensor::total_items(&[]), 1);
     /// ```
+    #[inline]
     pub fn total_items(dimensions: &[usize]) -> usize {
         dimensions
             .iter()
@@ -257,37 +259,48 @@ impl Tensor {
     /// t.transpose(&Permutation::oneline([3, 1, 4, 0, 2]));
     /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
     /// ```
+    #[inline]
     #[must_use]
     pub fn shape(&self) -> Vec<usize> {
         self.permutation.apply_slice(&self.shape)
     }
 
-    /// Returns the size of a single axis or of the whole tensor.
-    ///
-    /// # Panics
-    /// - Panics if the total size is requested and it is larger than u32
+    /// Returns the size of a single dimension.
     ///
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
     /// # use permutation::Permutation;
     /// let mut t = Tensor::new(&[1, 3, 5]);
-    /// assert_eq!(t.size(None), 15);
-    /// assert_eq!(t.size(Some(1)), 3);
-    /// assert_eq!(t.size(Some(2)), 5);
-    /// assert_eq!(t.size(Some(0)), 1);
+    /// assert_eq!(t.len_of(1), 3);
+    /// assert_eq!(t.len_of(2), 5);
+    /// assert_eq!(t.len_of(0), 1);
     /// t.transpose(&Permutation::oneline([1, 2, 0]));
-    /// assert_eq!(t.size(Some(0)), 5);
-    /// assert_eq!(t.size(Some(1)), 1);
-    /// assert_eq!(t.size(Some(2)), 3);
+    /// assert_eq!(t.len_of(0), 5);
+    /// assert_eq!(t.len_of(1), 1);
+    /// assert_eq!(t.len_of(2), 3);
     /// ```
+    #[inline]
     #[must_use]
-    pub fn size(&self, axis: Option<usize>) -> usize {
-        if let Some(axis) = axis {
-            self.shape[self.permutation.apply_inv_idx(axis)]
-        } else {
-            self.data.len()
-        }
+    pub fn len_of(&self, dimension: usize) -> usize {
+        self.shape[self.permutation.apply_inv_idx(dimension)]
+    }
+
+    /// Returns the size of the tensor, that is, the total number of elements of all
+    /// dimensions.
+    ///
+    /// # Examples
+    /// ```
+    /// # use tetra::Tensor;
+    /// let t1 = Tensor::new(&[1, 3, 5]);
+    /// assert_eq!(t1.len(), 15);
+    /// let t2 = Tensor::new(&[4, 2]);
+    /// assert_eq!(t2.len(), 8);
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.data.len()
     }
 
     /// Returns the number of dimensions of the tensor.
@@ -331,6 +344,7 @@ impl Tensor {
     /// Returns whether the data is laid out contiguous in memory, i.e., the logical
     /// order of elements matches the physical order in memory. The order is
     /// cloumn-major.
+    #[inline]
     fn is_contiguous(&self) -> bool {
         self.permutation == Permutation::one(self.permutation.len())
     }
@@ -497,12 +511,12 @@ pub fn contract(
         if contracted.contains(idx) {
             a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i;
             contract_order[a_contracted] = *idx;
-            a_contracted_size *= a.size(Some(i));
+            a_contracted_size *= a.len_of(i);
             a_contracted += 1;
         } else {
             a_perm[a_remaining] = i;
             a_remaining += 1;
-            a_remaining_size *= a.size(Some(i));
+            a_remaining_size *= a.len_of(i);
             remaining.push(*idx);
         }
     }
@@ -516,11 +530,11 @@ pub fn contract(
     for (i, idx) in b_indices.iter().enumerate() {
         if contracted.contains(idx) {
             b_perm[contract_order.iter().position(|e| *e == *idx).unwrap()] = i;
-            b_contracted_size *= b.size(Some(i));
+            b_contracted_size *= b.len_of(i);
         } else {
             b_perm[contracted.len() + b_remaining] = i;
             b_remaining += 1;
-            b_remaining_size *= b.size(Some(i));
+            b_remaining_size *= b.len_of(i);
             remaining.push(*idx);
         }
     }
@@ -534,7 +548,7 @@ pub fn contract(
         let mut found = false;
         for (i, s) in a_indices.iter().enumerate() {
             if *r == *s {
-                c_shape.push(a.size(Some(i)));
+                c_shape.push(a.len_of(i));
                 found = true;
                 break;
             }
@@ -543,7 +557,7 @@ pub fn contract(
         if !found {
             for (i, s) in b_indices.iter().enumerate() {
                 if *r == *s {
-                    c_shape.push(b.size(Some(i)));
+                    c_shape.push(b.len_of(i));
                     break;
                 }
             }
@@ -694,7 +708,7 @@ mod tests {
     fn test_scalar_shape() {
         let t = Tensor::new(&[]);
         assert_eq!(t.shape(), vec![]);
-        assert_eq!(t.size(None), 1);
+        assert_eq!(t.len(), 1);
         assert_eq!(t.ndim(), 0);
     }
 
@@ -721,18 +735,18 @@ mod tests {
 
         a.transpose(&Permutation::oneline([2, 0, 1]));
         assert_eq!(a.shape(), vec![3, 4, 2]);
-        assert_eq!(a.size(Some(0)), 3);
-        assert_eq!(a.size(Some(1)), 4);
-        assert_eq!(a.size(Some(2)), 2);
+        assert_eq!(a.len_of(0), 3);
+        assert_eq!(a.len_of(1), 4);
+        assert_eq!(a.len_of(2), 2);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[1, 3, 0]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[2, 1, 1]), Complex64::new(-5.0, 0.0));
 
         a.transpose(&Permutation::oneline([2, 0, 1]));
         assert_eq!(a.shape(), vec![4, 2, 3]);
-        assert_eq!(a.size(Some(0)), 4);
-        assert_eq!(a.size(Some(1)), 2);
-        assert_eq!(a.size(Some(2)), 3);
+        assert_eq!(a.len_of(0), 4);
+        assert_eq!(a.len_of(1), 2);
+        assert_eq!(a.len_of(2), 3);
         assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
         assert_eq!(a.get(&[3, 0, 1]), Complex64::new(0.0, -1.0));
         assert_eq!(a.get(&[1, 1, 2]), Complex64::new(-5.0, 0.0));
