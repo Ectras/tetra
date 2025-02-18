@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashSet, sync::Arc};
+use std::{borrow::Cow, sync::Arc};
 
 extern crate intel_mkl_src;
 
@@ -451,6 +451,86 @@ impl Tensor {
     }
 }
 
+#[derive(Debug)]
+struct ContractionPermutationData {
+    /// The uncontracted labels.
+    uncontracted: Vec<usize>,
+    /// Permutation of `a`, moving uncontracted dimensions to the front and contracted
+    /// dimensions to the back.
+    a_permutation: Vec<usize>,
+    /// Permutation of `b`, moving contracted dimensions to the front (in the same
+    /// order as they appear in `a`) and uncontracted dimensions to the back.
+    b_permutation: Vec<usize>,
+    /// The size of the contracted dimensions.
+    contracted_size: usize,
+    /// The size of the uncontracted dimensions of `a`.
+    a_uncontracted_size: usize,
+    /// The size of the uncontracted dimensions of `b`.
+    b_uncontracted_size: usize,
+    /// The shape of the resulting tensor.
+    c_shape: Vec<usize>,
+}
+
+fn compute_contraction_permutation(
+    a_labels: &[usize],
+    a_shape: &[usize],
+    b_labels: &[usize],
+    b_shape: &[usize],
+) -> ContractionPermutationData {
+    let mut a_permutation = vec![0; a_labels.len()];
+    let mut b_permutation = vec![0; b_labels.len()];
+
+    let mut uncontracted = Vec::with_capacity(a_labels.len() + b_labels.len());
+    let mut contracted = 0;
+    let mut a_uncontracted_size = 1;
+    let mut contracted_size = 1;
+    let mut b_uncontracted_size = 1;
+    let mut contracted_mask_b = vec![false; b_labels.len()];
+    let mut c_shape = Vec::with_capacity(uncontracted.capacity());
+
+    for (i, (label_a, dim_a)) in a_labels.iter().zip(a_shape).enumerate() {
+        if let Some(j) = b_labels.iter().position(|label_b| label_a == label_b) {
+            // This is a contracted index, move to back in `a` and front in `b`
+            b_permutation[contracted] = j;
+            contracted_mask_b[j] = true;
+            contracted += 1;
+            a_permutation[a_labels.len() - contracted] = i;
+            contracted_size *= dim_a;
+        } else {
+            // This is an uncontracted index of `a`
+            a_uncontracted_size *= dim_a;
+            a_permutation[uncontracted.len()] = i;
+            uncontracted.push(*label_a);
+            c_shape.push(*dim_a);
+        }
+    }
+
+    // permutation of contracted indices is reverse to order in `contracted` vec
+    a_permutation[a_labels.len() - contracted..].reverse();
+
+    let mut uncontracted_b = 0;
+    for (i, (label_b, dim_b)) in b_labels.iter().zip(b_shape).enumerate() {
+        if !contracted_mask_b[i] {
+            // This is an uncontracted index of `b`
+            b_uncontracted_size *= dim_b;
+            b_permutation[contracted + uncontracted_b] = i;
+            uncontracted.push(*label_b);
+            c_shape.push(*dim_b);
+            uncontracted_b += 1;
+        }
+    }
+
+    ContractionPermutationData {
+        uncontracted,
+        a_permutation,
+        b_permutation,
+        contracted_size,
+        a_uncontracted_size,
+        b_uncontracted_size,
+        c_shape,
+    }
+}
+
 /// Contracts two tensors, returning the resulting tensor.
 /// The indices specify which legs are to be contracted (like einsum notation). So if
 /// two tensors share an index, the corresponding dimension is contracted.
@@ -473,9 +553,6 @@ impl Tensor {
 /// let b = Tensor::new(&[3]);
 /// let c = contract(&[], &[0], a, &[0], b);
 /// ```
-///
-/// # Panics
-/// - Panics if contracted sizes don't match
 #[must_use]
 pub fn contract(
     out_indices: &[usize],
@@ -487,89 +564,22 @@ pub fn contract(
     assert_eq!(a_indices.len(), a.ndim());
     assert_eq!(b_indices.len(), b.ndim());
 
-    // Find contracted indices
-    let b_legs = b_indices.iter().copied().collect::<HashSet<_>>();
-    let contracted = a_indices
-        .iter()
-        .filter(|idx| b_legs.contains(idx))
-        .copied()
-        .collect::<HashSet<_>>();
-
-    let mut remaining =
-        Vec::with_capacity(a_indices.len() + b_indices.len() - 2 * contracted.len());
-
-    // Compute permutation, total size of contracted dimensions and total size of
-    // remaining dimensions for A.
-    let mut a_contracted = 0;
-    let mut a_remaining = 0;
-    let mut a_contracted_size = 1;
-    let mut a_remaining_size = 1;
-    let mut a_perm = vec![0; a_indices.len()];
-    let mut contract_order = vec![0; contracted.len()];
-
-    for (i, idx) in a_indices.iter().enumerate() {
-        if contracted.contains(idx) {
-            a_perm[(a_indices.len() - contracted.len()) + a_contracted] = i;
-            contract_order[a_contracted] = *idx;
-            a_contracted_size *= a.len_of(i);
-            a_contracted += 1;
-        } else {
-            a_perm[a_remaining] = i;
-            a_remaining += 1;
-            a_remaining_size *= a.len_of(i);
-            remaining.push(*idx);
-        }
-    }
-
-    // Compute permutation, total size of contracted dimensions and total size of
-    // remaining dimensions for B.
-    let mut b_remaining = 0;
-    let mut b_contracted_size = 1;
-    let mut b_remaining_size = 1;
-    let mut b_perm = vec![0; b_indices.len()];
-    for (i, idx) in b_indices.iter().enumerate() {
-        if contracted.contains(idx) {
-            b_perm[contract_order.iter().position(|e| *e == *idx).unwrap()] = i;
-            b_contracted_size *= b.len_of(i);
-        } else {
-            b_perm[contracted.len() + b_remaining] = i;
-            b_remaining += 1;
-            b_remaining_size *= b.len_of(i);
-            remaining.push(*idx);
-        }
-    }
-
-    // Make sure the connecting matrix dimensions match
-    assert_eq!(a_contracted_size, b_contracted_size);
-
-    // Compute the shape of C based on the remaining indices
-    let mut c_shape = Vec::with_capacity(remaining.len());
-    for r in &remaining {
-        let mut found = false;
-        for (i, s) in a_indices.iter().enumerate() {
-            if *r == *s {
-                c_shape.push(a.len_of(i));
-                found = true;
-                break;
-            }
-        }
-
-        if !found {
-            for (i, s) in b_indices.iter().enumerate() {
-                if *r == *s {
-                    c_shape.push(b.len_of(i));
-                    break;
-                }
-            }
-        }
-    }
+    let ContractionPermutationData {
+        uncontracted,
+        a_permutation,
+        b_permutation,
+        a_uncontracted_size,
+        b_uncontracted_size,
+        contracted_size,
+        c_shape,
+    } = compute_contraction_permutation(&a_indices, &a.shape(), &b_indices, &b.shape());
 
     // Get transposed A
-    a.transpose(&Permutation::oneline(a_perm).inverse());
+    a.transpose(&Permutation::oneline(a_permutation).inverse());
     let a_data = a.into_elements();
 
     // Get transposed B
-    b.transpose(&Permutation::oneline(b_perm).inverse());
+    b.transpose(&Permutation::oneline(b_permutation).inverse());
     let b_data = b.into_elements();
 
     // Create output tensor
@@ -582,17 +592,17 @@ pub fn contract(
             CBLAS_LAYOUT::CblasColMajor,
             CBLAS_TRANSPOSE::CblasNoTrans,
             CBLAS_TRANSPOSE::CblasNoTrans,
-            a_remaining_size.try_into().unwrap(),
-            b_remaining_size.try_into().unwrap(),
-            b_contracted_size.try_into().unwrap(),
+            a_uncontracted_size.try_into().unwrap(),
+            b_uncontracted_size.try_into().unwrap(),
+            contracted_size.try_into().unwrap(),
             &Complex64::ONE as *const _ as *const _,
             a_data.as_ptr() as *const _,
-            a_remaining_size.try_into().unwrap(),
+            a_uncontracted_size.try_into().unwrap(),
             b_data.as_ptr() as *const _,
-            b_contracted_size.try_into().unwrap(),
+            contracted_size.try_into().unwrap(),
             &Complex64::ZERO as *const _ as *const _,
             out_data.as_mut_ptr() as *mut _,
-            a_remaining_size.try_into().unwrap(),
+            a_uncontracted_size.try_into().unwrap(),
         );
 
         // Update length as full vector is now initialized
@@ -600,7 +610,7 @@ pub fn contract(
     }
 
     // Find permutation for output tensor
-    let remaining_to_sorted = permutation::sort(&remaining);
+    let remaining_to_sorted = permutation::sort(&uncontracted);
     let sorted_to_out_indices = permutation::sort(out_indices).inverse();
     let c_perm = &sorted_to_out_indices * &remaining_to_sorted;
 
@@ -971,6 +981,26 @@ mod tests {
         let slice = matrix.slice(2, 1);
         assert_eq!(slice.shape(), vec![2, 3]);
         assert_eq!(*slice.into_elements(), ref_data_slice_2);
+    }
+
+    #[test]
+    fn test_compute_contraction_permutation() {
+        // Contracted axes is 2, 5, 4
+        // Uncontracted axes is 8, 9, 10, 11, 3, 1, 6, 7
+        let data = compute_contraction_permutation(
+            &[8, 2, 9, 5, 10, 11, 4],
+            &[2, 3, 4, 5, 6, 7, 8],
+            &[3, 1, 6, 5, 2, 7, 4],
+            &[2, 3, 4, 5, 3, 6, 8],
+        );
+
+        assert_eq!(data.uncontracted, &[8, 9, 10, 11, 3, 1, 6, 7]);
+        assert_eq!(data.a_permutation, &[0, 2, 4, 5, 1, 3, 6]);
+        assert_eq!(data.b_permutation, &[4, 3, 6, 0, 1, 2, 5]);
+        assert_eq!(data.a_uncontracted_size, 2 * 4 * 6 * 7);
+        assert_eq!(data.b_uncontracted_size, 2 * 3 * 4 * 6);
+        assert_eq!(data.contracted_size, 3 * 5 * 8);
+        assert_eq!(data.c_shape, &[2, 4, 6, 7, 2, 3, 4, 6]);
     }
 
     #[test]
