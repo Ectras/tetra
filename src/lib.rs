@@ -18,7 +18,7 @@ pub mod random;
 // pub mod decomposition;
 
 mod ffi {
-    use std::ffi::c_longlong;
+    use std::ffi::{c_int, c_longlong};
 
     use cblas_sys::{c_double_complex, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 
@@ -49,6 +49,9 @@ mod ffi {
             c: *mut c_double_complex,
             ldc: c_longlong,
         );
+
+        /// Returns the number of threads available to MKL.
+        pub fn mkl_get_max_threads() -> c_int;
     }
 }
 
@@ -621,6 +624,11 @@ pub fn contract(
     out
 }
 
+/// Returns the maximum number of threads available to MKL.
+pub fn mkl_max_threads() -> u32 {
+    unsafe { ffi::mkl_get_max_threads().try_into().unwrap() }
+}
+
 /// Compares two floating point numbers for approximate equality.
 #[must_use]
 fn compare_float(a: f64, b: f64, epsilon: f64) -> bool {
@@ -1003,6 +1011,12 @@ mod tests {
         assert_eq!(data.b_uncontracted_size, 2 * 3 * 4 * 6);
         assert_eq!(data.contracted_size, 3 * 5 * 8);
         assert_eq!(data.c_shape, &[2, 4, 6, 7, 2, 3, 4, 6]);
+    }
+
+    #[test]
+    fn test_mkl_get_threads() {
+        let max_threads = mkl_max_threads();
+        assert!(max_threads > 0);
     }
 
     #[test]
