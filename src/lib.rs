@@ -158,6 +158,7 @@ impl Tensor {
     }
 
     /// Creates a new `Tensor` with a single scalar value.
+    #[inline]
     #[must_use]
     pub fn new_scalar(value: Complex64) -> Self {
         Self::new_from_flat(&[], vec![value], None)
@@ -320,6 +321,7 @@ impl Tensor {
     /// Transposes the tensor axes according to the permutation.
     /// This method does not modify the data but only the view, hence it is zero
     /// cost.
+    #[inline]
     pub fn transpose(&mut self, permutation: &Permutation) {
         self.permutation = permutation * &self.permutation;
     }
