@@ -174,6 +174,7 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if any dimension is zero
+    #[must_use]
     fn new_uninitialized(dimensions: &[usize]) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
@@ -204,6 +205,7 @@ impl Tensor {
     /// assert_eq!(Tensor::total_items(&[]), 1);
     /// ```
     #[inline]
+    #[must_use]
     pub fn total_items(dimensions: &[usize]) -> usize {
         dimensions
             .iter()
@@ -215,6 +217,7 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if the coordinates are invalid
+    #[must_use]
     fn compute_index(&self, coordinates: &[usize]) -> usize {
         // Borrow the data
         assert_eq!(coordinates.len(), self.shape.len());
@@ -480,6 +483,7 @@ struct ContractionPermutationData {
     c_shape: Vec<usize>,
 }
 
+#[must_use]
 fn compute_contraction_permutation(
     a_labels: &[usize],
     a_shape: &[usize],
@@ -630,6 +634,8 @@ pub fn contract(
 }
 
 /// Returns the maximum number of threads available to MKL.
+#[inline]
+#[must_use]
 pub fn mkl_max_threads() -> u32 {
     unsafe { ffi::mkl_get_max_threads().try_into().unwrap() }
 }
