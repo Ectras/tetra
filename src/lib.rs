@@ -709,7 +709,7 @@ mod tests {
             col_data.push(Complex64::new(
                 dims.iter()
                     .zip(index_size.iter())
-                    .map(|(i, size)| (i * size) as f64)
+                    .map(|(i, size)| f64::from(i * size))
                     .product::<f64>(),
                 0.0,
             ));
@@ -717,7 +717,7 @@ mod tests {
             row_data.push(Complex64::new(
                 dims.iter()
                     .zip(index_size.iter())
-                    .map(|(i, size)| (i * size) as f64)
+                    .map(|(i, size)| f64::from(i * size))
                     .product::<f64>(),
                 0.0,
             ));
@@ -948,7 +948,7 @@ mod tests {
 
     fn int_to_complex(x: Vec<i32>) -> Vec<Complex64> {
         x.into_iter()
-            .map(|x| Complex64::new(x as f64, 0.0))
+            .map(|x| Complex64::new(x.into(), 0.0))
             .collect()
     }
 
