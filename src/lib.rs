@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, ptr, sync::Arc};
 
 extern crate intel_mkl_src;
 
@@ -600,13 +600,13 @@ pub fn contract(
             a_uncontracted_size.try_into().unwrap(),
             b_uncontracted_size.try_into().unwrap(),
             contracted_size.try_into().unwrap(),
-            &Complex64::ONE as *const _ as *const _,
-            a_data.as_ptr() as *const _,
+            ptr::from_ref(&Complex64::ONE).cast(),
+            a_data.as_ptr().cast(),
             a_uncontracted_size.try_into().unwrap(),
-            b_data.as_ptr() as *const _,
+            b_data.as_ptr().cast(),
             contracted_size.try_into().unwrap(),
-            &Complex64::ZERO as *const _ as *const _,
-            out_data.as_mut_ptr() as *mut _,
+            ptr::from_ref(&Complex64::ZERO).cast(),
+            out_data.as_mut_ptr().cast(),
             a_uncontracted_size.try_into().unwrap(),
         );
 
