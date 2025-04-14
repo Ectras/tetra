@@ -56,7 +56,9 @@ mod ffi {
 }
 
 /// The data layout of a tensor. For row-major, the last index is the fastest running
-/// one. This does not necessarily correspond to the underlying memory layout, as it
+/// one.
+///
+/// This does not necessarily correspond to the underlying memory layout, as it
 /// can also be realized through permutating accesses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Layout {
@@ -456,6 +458,8 @@ impl Tensor {
     }
 }
 
+/// Helper struct containing information about a contraction, like the required
+/// permutations and resulting shape.
 #[derive(Debug)]
 struct ContractionPermutationData {
     /// The uncontracted labels.
@@ -537,6 +541,7 @@ fn compute_contraction_permutation(
 }
 
 /// Contracts two tensors, returning the resulting tensor.
+///
 /// The indices specify which legs are to be contracted (like einsum notation). So if
 /// two tensors share an index, the corresponding dimension is contracted.
 ///
