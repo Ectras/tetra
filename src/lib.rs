@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, ptr, sync::Arc};
 
 extern crate intel_mkl_src;
 
@@ -56,7 +56,9 @@ mod ffi {
 }
 
 /// The data layout of a tensor. For row-major, the last index is the fastest running
-/// one. This does not necessarily correspond to the underlying memory layout, as it
+/// one.
+///
+/// This does not necessarily correspond to the underlying memory layout, as it
 /// can also be realized through permutating accesses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Layout {
@@ -81,7 +83,7 @@ pub struct Tensor {
 impl Tensor {
     /// Creates a new `Tensor` of the given dimensions.
     /// The tensor is initialized with zeros.
-    /// For a scalar, pass an empty slice (or use [`Self::new_scalar`]).
+    /// For a scalar, pass an empty slice (or use [`Tensor::new_scalar`]).
     ///
     /// # Panics
     /// - Panics if any dimension is zero
@@ -100,7 +102,7 @@ impl Tensor {
 
         // Construct tensor
         let identity = Permutation::one(dimensions.len());
-        let total_items = Self::total_items(dimensions);
+        let total_items = Tensor::total_items(dimensions);
         let zeros = vec![Complex64::default(); total_items];
         Self {
             shape: dimensions.to_vec(),
@@ -138,7 +140,7 @@ impl Tensor {
     ) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
-        assert_eq!(Self::total_items(dimensions), data.len());
+        assert_eq!(Tensor::total_items(dimensions), data.len());
 
         // Get the permutation based on the requested layout
         let (permutation, shape) = match layout.unwrap_or(Layout::ColumnMajor) {
@@ -172,13 +174,14 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if any dimension is zero
+    #[must_use]
     fn new_uninitialized(dimensions: &[usize]) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
         let identity = Permutation::one(dimensions.len());
-        let total_items = Self::total_items(dimensions);
+        let total_items = Tensor::total_items(dimensions);
         let uninitialized = Vec::with_capacity(total_items);
         Self {
             shape: dimensions.to_vec(),
@@ -202,6 +205,7 @@ impl Tensor {
     /// assert_eq!(Tensor::total_items(&[]), 1);
     /// ```
     #[inline]
+    #[must_use]
     pub fn total_items(dimensions: &[usize]) -> usize {
         dimensions
             .iter()
@@ -213,6 +217,7 @@ impl Tensor {
     ///
     /// # Panics
     /// - Panics if the coordinates are invalid
+    #[must_use]
     fn compute_index(&self, coordinates: &[usize]) -> usize {
         // Borrow the data
         assert_eq!(coordinates.len(), self.shape.len());
@@ -456,6 +461,8 @@ impl Tensor {
     }
 }
 
+/// Helper struct containing information about a contraction, like the required
+/// permutations and resulting shape.
 #[derive(Debug)]
 struct ContractionPermutationData {
     /// The uncontracted labels.
@@ -476,6 +483,7 @@ struct ContractionPermutationData {
     c_shape: Vec<usize>,
 }
 
+#[must_use]
 fn compute_contraction_permutation(
     a_labels: &[usize],
     a_shape: &[usize],
@@ -537,6 +545,7 @@ fn compute_contraction_permutation(
 }
 
 /// Contracts two tensors, returning the resulting tensor.
+///
 /// The indices specify which legs are to be contracted (like einsum notation). So if
 /// two tensors share an index, the corresponding dimension is contracted.
 ///
@@ -600,13 +609,13 @@ pub fn contract(
             a_uncontracted_size.try_into().unwrap(),
             b_uncontracted_size.try_into().unwrap(),
             contracted_size.try_into().unwrap(),
-            &Complex64::ONE as *const _ as *const _,
-            a_data.as_ptr() as *const _,
+            ptr::from_ref(&Complex64::ONE).cast(),
+            a_data.as_ptr().cast(),
             a_uncontracted_size.try_into().unwrap(),
-            b_data.as_ptr() as *const _,
+            b_data.as_ptr().cast(),
             contracted_size.try_into().unwrap(),
-            &Complex64::ZERO as *const _ as *const _,
-            out_data.as_mut_ptr() as *mut _,
+            ptr::from_ref(&Complex64::ZERO).cast(),
+            out_data.as_mut_ptr().cast(),
             a_uncontracted_size.try_into().unwrap(),
         );
 
@@ -625,6 +634,8 @@ pub fn contract(
 }
 
 /// Returns the maximum number of threads available to MKL.
+#[inline]
+#[must_use]
 pub fn mkl_max_threads() -> u32 {
     unsafe { ffi::mkl_get_max_threads().try_into().unwrap() }
 }
@@ -698,7 +709,7 @@ mod tests {
             col_data.push(Complex64::new(
                 dims.iter()
                     .zip(index_size.iter())
-                    .map(|(i, size)| (i * size) as f64)
+                    .map(|(i, size)| f64::from(i * size))
                     .product::<f64>(),
                 0.0,
             ));
@@ -706,7 +717,7 @@ mod tests {
             row_data.push(Complex64::new(
                 dims.iter()
                     .zip(index_size.iter())
-                    .map(|(i, size)| (i * size) as f64)
+                    .map(|(i, size)| f64::from(i * size))
                     .product::<f64>(),
                 0.0,
             ));
@@ -937,7 +948,7 @@ mod tests {
 
     fn int_to_complex(x: Vec<i32>) -> Vec<Complex64> {
         x.into_iter()
-            .map(|x| Complex64::new(x as f64, 0.0))
+            .map(|x| Complex64::new(x.into(), 0.0))
             .collect()
     }
 
