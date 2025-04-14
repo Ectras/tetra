@@ -83,7 +83,7 @@ pub struct Tensor {
 impl Tensor {
     /// Creates a new `Tensor` of the given dimensions.
     /// The tensor is initialized with zeros.
-    /// For a scalar, pass an empty slice (or use [`Self::new_scalar`]).
+    /// For a scalar, pass an empty slice (or use [`Tensor::new_scalar`]).
     ///
     /// # Panics
     /// - Panics if any dimension is zero
@@ -102,7 +102,7 @@ impl Tensor {
 
         // Construct tensor
         let identity = Permutation::one(dimensions.len());
-        let total_items = Self::total_items(dimensions);
+        let total_items = Tensor::total_items(dimensions);
         let zeros = vec![Complex64::default(); total_items];
         Self {
             shape: dimensions.to_vec(),
@@ -140,7 +140,7 @@ impl Tensor {
     ) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
-        assert_eq!(Self::total_items(dimensions), data.len());
+        assert_eq!(Tensor::total_items(dimensions), data.len());
 
         // Get the permutation based on the requested layout
         let (permutation, shape) = match layout.unwrap_or(Layout::ColumnMajor) {
@@ -181,7 +181,7 @@ impl Tensor {
 
         // Construct tensor
         let identity = Permutation::one(dimensions.len());
-        let total_items = Self::total_items(dimensions);
+        let total_items = Tensor::total_items(dimensions);
         let uninitialized = Vec::with_capacity(total_items);
         Self {
             shape: dimensions.to_vec(),
