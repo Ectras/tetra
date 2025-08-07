@@ -599,16 +599,17 @@ checksum = "fbf6a919d6cf397374f7dfeeea91d974c7c0a7221d0d0f4f20d859d329e53fcc"
 [[package]]
 name = "hptt"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-hptt.git#40cb5d8449c7bfe01edf3768c85df5ee6b0bf968"
+source = "git+https://github.com/Ectras/rust-hptt.git#5ca484b83be1fecebc1be389b97a7fee7ea39576"
 dependencies = [
  "hptt-sys",
  "num-complex",
+ "num-traits",
 ]
 
 [[package]]
 name = "hptt-sys"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-hptt.git#40cb5d8449c7bfe01edf3768c85df5ee6b0bf968"
+source = "git+https://github.com/Ectras/rust-hptt.git#5ca484b83be1fecebc1be389b97a7fee7ea39576"
 dependencies = [
  "bindgen",
  "cmake",
@@ -899,7 +900,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
