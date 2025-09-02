@@ -102,10 +102,80 @@ pub fn max_threads() -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use float_cmp::assert_approx_eq;
+
+    use crate::utils::{wrap, Complex64ApproxEq};
+
     use super::*;
 
     #[test]
-    fn test_threads_positive() {
+    fn matrix_matrix_multiplication_to_vector() {
+        let a = vec![
+            Complex64::new(2.0, 5.0),
+            Complex64::new(3.0, -1.0),
+            Complex64::new(0.0, 2.0),
+            Complex64::new(-6.0, 0.0),
+            Complex64::new(-7.0, 2.0),
+            Complex64::new(0.0, 3.0),
+        ];
+        let b = vec![Complex64::new(0.0, 5.0), Complex64::new(6.0, 8.0)];
+        let solution = vec![
+            Complex64::new(-61.0, -38.0),
+            Complex64::new(-53.0, -29.0),
+            Complex64::new(-34.0, 18.0),
+        ];
+
+        let out = matrix_matrix_multiplication(3, 2, 1, &a, &b);
+        assert_approx_eq!(&[Complex64ApproxEq], wrap(&out), wrap(&solution));
+    }
+
+    #[test]
+    fn matrix_matrix_multiplication_to_matrix() {
+        let a = vec![
+            Complex64::new(0.0, -1.0),
+            Complex64::new(1.0, 0.0),
+            Complex64::new(-1.0, -1.0),
+            Complex64::new(0.0, 1.0),
+            Complex64::new(0.0, 0.0),
+            Complex64::new(1.0, 1.0),
+        ];
+        let b = vec![
+            Complex64::new(0.0, 1.0),
+            Complex64::new(1.0, 0.0),
+            Complex64::new(-1.0, 0.0),
+            Complex64::new(0.0, -1.0),
+            Complex64::new(-1.0, 1.0),
+            Complex64::new(1.0, -1.0),
+        ];
+        let solution = vec![
+            Complex64::new(0.0, -1.0),
+            Complex64::new(-1.0, 1.0),
+            Complex64::new(1.0, 0.0),
+            Complex64::new(1.0, -2.0),
+        ];
+
+        let out = matrix_matrix_multiplication(2, 3, 2, &a, &b);
+        assert_approx_eq!(&[Complex64ApproxEq], wrap(&out), wrap(&solution));
+    }
+
+    #[test]
+    #[should_panic(expected = "Matrix A dimensions don't match data length")]
+    fn matrix_matrix_multiplication_wrong_dimension_a() {
+        let a = vec![Complex64::ONE; 4];
+        let b = vec![Complex64::ONE; 6];
+        let _ = matrix_matrix_multiplication(2, 3, 2, &a, &b);
+    }
+
+    #[test]
+    #[should_panic(expected = "Matrix B dimensions don't match data length")]
+    fn matrix_matrix_multiplication_wrong_dimension_b() {
+        let a = vec![Complex64::ONE; 4];
+        let b = vec![Complex64::ONE; 6];
+        let _ = matrix_matrix_multiplication(2, 2, 4, &a, &b);
+    }
+
+    #[test]
+    fn threads_positive() {
         let max_threads = max_threads();
         assert!(max_threads > 0);
     }
