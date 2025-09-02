@@ -497,6 +497,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-cmp"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b09cf3155332e944990140d967ff5eceb70df778b34f77d8075db46e4704e6d8"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1539,6 +1548,7 @@ version = "0.1.0"
 dependencies = [
  "cblas-sys",
  "criterion",
+ "float-cmp",
  "hptt",
  "intel-mkl-src",
  "itertools 0.14.0",
