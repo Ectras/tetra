@@ -1,13 +1,12 @@
-use std::{borrow::Cow, ptr, sync::Arc};
+use std::{borrow::Cow, sync::Arc};
 
-extern crate intel_mkl_src;
-
-use cblas_sys::{CBLAS_LAYOUT, CBLAS_TRANSPOSE};
 use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
 use std::iter::zip;
+
+use crate::mkl::matrix_matrix_multiplication;
 
 #[cfg(feature = "serde")]
 pub mod serde;
@@ -15,45 +14,11 @@ pub mod serde;
 #[cfg(feature = "rand")]
 pub mod random;
 
+mod mkl;
+
+pub use mkl::max_threads;
+
 // pub mod decomposition;
-
-mod ffi {
-    use std::ffi::{c_int, c_longlong};
-
-    use cblas_sys::{c_double_complex, CBLAS_LAYOUT, CBLAS_TRANSPOSE};
-
-    extern "C" {
-        /// Matrix-matrix multiplication of two complex double matrices. This variant
-        /// present in MKL uses less multiplications than the standard BLAS routine
-        /// (ZGEMM).
-        ///
-        /// Reference: <https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-c/2025-0/cblas-gemm3m.html>.
-        ///
-        /// The function signature must match the C code for linking to work. For
-        /// reference, look at the ZGEMM signature in `cblas-sys`. Note that MKL uses
-        /// either 32-bit integers (`lp64`) or 64-bit integers (`ilp64`) for indexing.
-        /// If compiled with the `ilp64` feature, all `c_int` types should be replaced.
-        pub fn cblas_zgemm3m(
-            layout: CBLAS_LAYOUT,
-            transa: CBLAS_TRANSPOSE,
-            transb: CBLAS_TRANSPOSE,
-            m: c_longlong,
-            n: c_longlong,
-            k: c_longlong,
-            alpha: *const c_double_complex,
-            a: *const c_double_complex,
-            lda: c_longlong,
-            b: *const c_double_complex,
-            ldb: c_longlong,
-            beta: *const c_double_complex,
-            c: *mut c_double_complex,
-            ldc: c_longlong,
-        );
-
-        /// Returns the number of threads available to MKL.
-        pub fn mkl_get_max_threads() -> c_int;
-    }
-}
 
 /// The data layout of a tensor. For row-major, the last index is the fastest running
 /// one.
@@ -167,27 +132,6 @@ impl Tensor {
     #[must_use]
     pub fn new_scalar(value: Complex64) -> Self {
         Self::new_from_flat(&[], vec![value], None)
-    }
-
-    /// Creates a new `Tensor` without actual data. It will have the requested
-    /// capacity, meaning it can be written to in unsafe code.
-    ///
-    /// # Panics
-    /// - Panics if any dimension is zero
-    #[must_use]
-    fn new_uninitialized(dimensions: &[usize]) -> Self {
-        // Validity checks
-        assert!(dimensions.iter().all(|&x| x > 0));
-
-        // Construct tensor
-        let identity = Permutation::one(dimensions.len());
-        let total_items = Tensor::total_items(dimensions);
-        let uninitialized = Vec::with_capacity(total_items);
-        Self {
-            shape: dimensions.to_vec(),
-            permutation: identity,
-            data: Arc::new(uninitialized),
-        }
     }
 
     /// Computes the total number of items specified by `dimensions`.
@@ -596,32 +540,17 @@ pub fn contract(
     b.transpose(&Permutation::oneline(b_permutation).inverse());
     let b_data = b.into_elements();
 
+    // Compute GEMM
+    let out_data = matrix_matrix_multiplication(
+        a_uncontracted_size,
+        contracted_size,
+        b_uncontracted_size,
+        &a_data,
+        &b_data,
+    );
+
     // Create output tensor
-    let mut out = Tensor::new_uninitialized(&c_shape);
-
-    // Compute ZGEMM
-    unsafe {
-        let out_data = out.raw_data_mut();
-        ffi::cblas_zgemm3m(
-            CBLAS_LAYOUT::CblasColMajor,
-            CBLAS_TRANSPOSE::CblasNoTrans,
-            CBLAS_TRANSPOSE::CblasNoTrans,
-            a_uncontracted_size.try_into().unwrap(),
-            b_uncontracted_size.try_into().unwrap(),
-            contracted_size.try_into().unwrap(),
-            ptr::from_ref(&Complex64::ONE).cast(),
-            a_data.as_ptr().cast(),
-            a_uncontracted_size.try_into().unwrap(),
-            b_data.as_ptr().cast(),
-            contracted_size.try_into().unwrap(),
-            ptr::from_ref(&Complex64::ZERO).cast(),
-            out_data.as_mut_ptr().cast(),
-            a_uncontracted_size.try_into().unwrap(),
-        );
-
-        // Update length as full vector is now initialized
-        out_data.set_len(out_data.capacity());
-    }
+    let mut out = Tensor::new_from_flat(&c_shape, out_data, None);
 
     // Find permutation for output tensor
     let remaining_to_sorted = permutation::sort(&uncontracted);
@@ -631,13 +560,6 @@ pub fn contract(
     // Return transposed output tensor
     out.transpose(&c_perm);
     out
-}
-
-/// Returns the maximum number of threads available to MKL.
-#[inline]
-#[must_use]
-pub fn mkl_max_threads() -> u32 {
-    unsafe { ffi::mkl_get_max_threads().try_into().unwrap() }
 }
 
 /// Compares two floating point numbers for approximate equality.
@@ -1022,12 +944,6 @@ mod tests {
         assert_eq!(data.b_uncontracted_size, 2 * 3 * 4 * 6);
         assert_eq!(data.contracted_size, 3 * 5 * 8);
         assert_eq!(data.c_shape, &[2, 4, 6, 7, 2, 3, 4, 6]);
-    }
-
-    #[test]
-    fn test_mkl_get_threads() {
-        let max_threads = mkl_max_threads();
-        assert!(max_threads > 0);
     }
 
     #[test]
