@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
-use float_cmp::{approx_eq, ApproxEq, F64Margin};
+use float_cmp::{ApproxEq, F64Margin};
 use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
@@ -87,7 +87,8 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use num_complex::Complex64;
-    /// # use tetra::{Layout, Tensor, all_close};
+    /// # use float_cmp::assert_approx_eq;
+    /// # use tetra::{Layout, Tensor};
     /// let row_major = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
     ///     Complex64::new(3.0, 0.0), Complex64::new(4.0, 0.0)
@@ -96,7 +97,7 @@ impl Tensor {
     ///     Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
     ///     Complex64::new(2.0, 0.0), Complex64::new(4.0, 0.0)
     /// ], Some(Layout::ColumnMajor));
-    /// assert!(all_close(&row_major, &col_major, 1e-12));
+    /// assert_approx_eq!(&Tensor, &row_major, &col_major);
     /// ```
     #[must_use]
     pub fn new_from_flat(
@@ -339,7 +340,8 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use num_complex::Complex64;
-    /// # use tetra::{Tensor, all_close};
+    /// # use float_cmp::assert_approx_eq;
+    /// # use tetra::{Tensor};
     /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
     ///     Complex64::new(2.0, 2.0), Complex64::new(0.0, 4.0)
@@ -351,7 +353,7 @@ impl Tensor {
     ///     Complex64::new(2.0, -2.0), Complex64::new(0.0, -4.0)
     /// ], None);
     ///
-    /// assert!(all_close(&tensor, &reference, 1e-12))
+    /// assert_approx_eq!(&Tensor, &tensor, &reference)
     /// ```
     pub fn conjugate(&mut self) {
         let owned_data = Arc::make_mut(&mut self.data);
@@ -582,16 +584,10 @@ impl ApproxEq for &Tensor {
     }
 }
 
-/// Compares two tensors for approximate equality.
-/// The tensors are considered equal if their shapes are equal and all their elements
-/// are approximately equal.
-#[must_use]
-pub fn all_close(a: &Tensor, b: &Tensor, epsilon: f64) -> bool {
-    approx_eq!(&Tensor, a, b, epsilon = epsilon)
-}
-
 #[cfg(test)]
 mod tests {
+    use float_cmp::assert_approx_eq;
+
     use super::*;
 
     #[test]
@@ -638,7 +634,7 @@ mod tests {
         let col_tensor = Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
         let row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
 
-        assert!(all_close(&col_tensor, &row_tensor, 1e-12));
+        assert_approx_eq!(&Tensor, &col_tensor, &row_tensor);
     }
 
     #[test]
@@ -978,7 +974,7 @@ mod tests {
         let a = contract(&[], &[0], b, &[0], c);
 
         let sol = Tensor::new_scalar(Complex64::new(14.0, 0.0));
-        assert!(all_close(&a, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &a, &sol);
     }
 
     #[test]
@@ -1043,7 +1039,7 @@ mod tests {
         let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
         let c = contract(&[], &[2, 0, 1], a, &[1, 2, 0], b);
 
-        assert!(all_close(&c, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &c, &sol, ulps = 10);
     }
 
     #[test]
@@ -1053,7 +1049,7 @@ mod tests {
         let c = contract(&[], &[], a, &[], b);
 
         let sol = Tensor::new_scalar(Complex64::new(-22.0, 14.0));
-        assert!(all_close(&c, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &c, &sol);
     }
 
     #[test]
@@ -1075,7 +1071,7 @@ mod tests {
 
         let sol = Tensor::new_from_flat(&[2, 2], sol_data, None);
         let c = contract(&[0, 1], &[0, 1], a, &[], b);
-        assert!(all_close(&c, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &c, &sol);
     }
 
     #[test]
@@ -1134,7 +1130,7 @@ mod tests {
         // Contract the tensors
         let out = contract(&[2], &[1, 0, 2], b, &[0, 1], c);
 
-        assert!(all_close(&out, &solution, 1e-12));
+        assert_approx_eq!(&Tensor, &out, &solution);
     }
 
     #[test]
@@ -1396,6 +1392,6 @@ mod tests {
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], b, &[5, 2, 4, 1], c);
         let out2 = contract(&[3], &[5, 4, 0], d, &[5, 3, 0, 4], out1);
 
-        assert!(all_close(&out2, &solution, 1e-12));
+        assert_approx_eq!(&Tensor, &out2, &solution);
     }
 }
