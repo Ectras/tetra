@@ -15,6 +15,7 @@ pub mod serde;
 pub mod random;
 
 mod mkl;
+mod utils;
 
 pub use mkl::max_threads;
 
