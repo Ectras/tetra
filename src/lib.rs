@@ -1,12 +1,12 @@
 use std::{borrow::Cow, sync::Arc};
 
+use float_cmp::{approx_eq, ApproxEq, F64Margin};
 use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
-use std::iter::zip;
 
-use crate::mkl::matrix_matrix_multiplication;
+use crate::{mkl::matrix_matrix_multiplication, utils::wrap};
 
 #[cfg(feature = "serde")]
 pub mod serde;
@@ -563,16 +563,23 @@ pub fn contract(
     out
 }
 
-/// Compares two floating point numbers for approximate equality.
-#[must_use]
-fn compare_float(a: f64, b: f64, epsilon: f64) -> bool {
-    a == b || ((a - b).abs() <= epsilon)
-}
+impl ApproxEq for &Tensor {
+    type Margin = F64Margin;
 
-/// Compares two complex numbers for approximate equality.
-#[must_use]
-fn compare_complex(a: Complex64, b: Complex64, epsilon: f64) -> bool {
-    compare_float(a.re, b.re, epsilon) && compare_float(a.im, b.im, epsilon)
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        let margin = margin.into();
+        if self.shape() != other.shape() {
+            return false;
+        }
+
+        let self_elements = self.elements();
+        let other_elements = other.elements();
+
+        let self_elements = wrap(&self_elements);
+        let other_elements = wrap(&other_elements);
+
+        self_elements.approx_eq(other_elements, margin)
+    }
 }
 
 /// Compares two tensors for approximate equality.
@@ -580,24 +587,7 @@ fn compare_complex(a: Complex64, b: Complex64, epsilon: f64) -> bool {
 /// are approximately equal.
 #[must_use]
 pub fn all_close(a: &Tensor, b: &Tensor, epsilon: f64) -> bool {
-    // Compare the shapes first
-    if a.shape() != b.shape() {
-        return false;
-    }
-
-    // Get the permuted data
-    // TODO: Should we instead access only inidividual elements to avoid this?
-    let a_data = a.elements();
-    let b_data = b.elements();
-
-    // Compare the elements
-    for (va, vb) in zip(&*a_data, &*b_data) {
-        if !compare_complex(*va, *vb, epsilon) {
-            return false;
-        }
-    }
-
-    true
+    approx_eq!(&Tensor, a, b, epsilon = epsilon)
 }
 
 #[cfg(test)]

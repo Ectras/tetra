@@ -17,7 +17,6 @@ impl ApproxEq for Complex64ApproxEq {
     }
 }
 
-#[cfg(test)]
 /// Converts the slice to a slice of the transparent Complex64 wrapper type that
 /// implements [`ApproxEq`].
 pub fn wrap(data: &[Complex64]) -> &[Complex64ApproxEq] {
