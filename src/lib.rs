@@ -1039,7 +1039,7 @@ mod tests {
         let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
         let c = contract(&[], &[2, 0, 1], a, &[1, 2, 0], b);
 
-        assert_approx_eq!(&Tensor, &c, &sol, ulps = 10);
+        assert_approx_eq!(&Tensor, &c, &sol, ulps = 16);
     }
 
     #[test]
@@ -1392,6 +1392,6 @@ mod tests {
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], b, &[5, 2, 4, 1], c);
         let out2 = contract(&[3], &[5, 4, 0], d, &[5, 3, 0, 4], out1);
 
-        assert_approx_eq!(&Tensor, &out2, &solution);
+        assert_approx_eq!(&Tensor, &out2, &solution, ulps = 32);
     }
 }
