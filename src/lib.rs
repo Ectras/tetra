@@ -1,12 +1,12 @@
 use std::{borrow::Cow, sync::Arc};
 
+use float_cmp::{ApproxEq, F64Margin};
 use hptt::transpose_simple;
 use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
-use std::iter::zip;
 
-use crate::mkl::matrix_matrix_multiplication;
+use crate::{mkl::matrix_matrix_multiplication, utils::wrap};
 
 #[cfg(feature = "serde")]
 pub mod serde;
@@ -15,6 +15,7 @@ pub mod serde;
 pub mod random;
 
 mod mkl;
+mod utils;
 
 pub use mkl::max_threads;
 
@@ -86,7 +87,8 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use num_complex::Complex64;
-    /// # use tetra::{Layout, Tensor, all_close};
+    /// # use float_cmp::assert_approx_eq;
+    /// # use tetra::{Layout, Tensor};
     /// let row_major = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
     ///     Complex64::new(3.0, 0.0), Complex64::new(4.0, 0.0)
@@ -95,7 +97,7 @@ impl Tensor {
     ///     Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
     ///     Complex64::new(2.0, 0.0), Complex64::new(4.0, 0.0)
     /// ], Some(Layout::ColumnMajor));
-    /// assert!(all_close(&row_major, &col_major, 1e-12));
+    /// assert_approx_eq!(&Tensor, &row_major, &col_major);
     /// ```
     #[must_use]
     pub fn new_from_flat(
@@ -338,7 +340,8 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use num_complex::Complex64;
-    /// # use tetra::{Tensor, all_close};
+    /// # use float_cmp::assert_approx_eq;
+    /// # use tetra::{Tensor};
     /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
     ///     Complex64::new(2.0, 2.0), Complex64::new(0.0, 4.0)
@@ -350,7 +353,7 @@ impl Tensor {
     ///     Complex64::new(2.0, -2.0), Complex64::new(0.0, -4.0)
     /// ], None);
     ///
-    /// assert!(all_close(&tensor, &reference, 1e-12))
+    /// assert_approx_eq!(&Tensor, &tensor, &reference)
     /// ```
     pub fn conjugate(&mut self) {
         let owned_data = Arc::make_mut(&mut self.data);
@@ -562,45 +565,29 @@ pub fn contract(
     out
 }
 
-/// Compares two floating point numbers for approximate equality.
-#[must_use]
-fn compare_float(a: f64, b: f64, epsilon: f64) -> bool {
-    a == b || ((a - b).abs() <= epsilon)
-}
+impl ApproxEq for &Tensor {
+    type Margin = F64Margin;
 
-/// Compares two complex numbers for approximate equality.
-#[must_use]
-fn compare_complex(a: Complex64, b: Complex64, epsilon: f64) -> bool {
-    compare_float(a.re, b.re, epsilon) && compare_float(a.im, b.im, epsilon)
-}
-
-/// Compares two tensors for approximate equality.
-/// The tensors are considered equal if their shapes are equal and all their elements
-/// are approximately equal.
-#[must_use]
-pub fn all_close(a: &Tensor, b: &Tensor, epsilon: f64) -> bool {
-    // Compare the shapes first
-    if a.shape() != b.shape() {
-        return false;
-    }
-
-    // Get the permuted data
-    // TODO: Should we instead access only inidividual elements to avoid this?
-    let a_data = a.elements();
-    let b_data = b.elements();
-
-    // Compare the elements
-    for (va, vb) in zip(&*a_data, &*b_data) {
-        if !compare_complex(*va, *vb, epsilon) {
+    fn approx_eq<M: Into<Self::Margin>>(self, other: Self, margin: M) -> bool {
+        let margin = margin.into();
+        if self.shape() != other.shape() {
             return false;
         }
-    }
 
-    true
+        let self_elements = self.elements();
+        let other_elements = other.elements();
+
+        let self_elements = wrap(&self_elements);
+        let other_elements = wrap(&other_elements);
+
+        self_elements.approx_eq(other_elements, margin)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use float_cmp::assert_approx_eq;
+
     use super::*;
 
     #[test]
@@ -647,7 +634,7 @@ mod tests {
         let col_tensor = Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
         let row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
 
-        assert!(all_close(&col_tensor, &row_tensor, 1e-12));
+        assert_approx_eq!(&Tensor, &col_tensor, &row_tensor);
     }
 
     #[test]
@@ -987,7 +974,7 @@ mod tests {
         let a = contract(&[], &[0], b, &[0], c);
 
         let sol = Tensor::new_scalar(Complex64::new(14.0, 0.0));
-        assert!(all_close(&a, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &a, &sol);
     }
 
     #[test]
@@ -1052,7 +1039,7 @@ mod tests {
         let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
         let c = contract(&[], &[2, 0, 1], a, &[1, 2, 0], b);
 
-        assert!(all_close(&c, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &c, &sol, ulps = 16);
     }
 
     #[test]
@@ -1062,7 +1049,7 @@ mod tests {
         let c = contract(&[], &[], a, &[], b);
 
         let sol = Tensor::new_scalar(Complex64::new(-22.0, 14.0));
-        assert!(all_close(&c, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &c, &sol);
     }
 
     #[test]
@@ -1084,7 +1071,7 @@ mod tests {
 
         let sol = Tensor::new_from_flat(&[2, 2], sol_data, None);
         let c = contract(&[0, 1], &[0, 1], a, &[], b);
-        assert!(all_close(&c, &sol, 1e-12));
+        assert_approx_eq!(&Tensor, &c, &sol);
     }
 
     #[test]
@@ -1143,7 +1130,7 @@ mod tests {
         // Contract the tensors
         let out = contract(&[2], &[1, 0, 2], b, &[0, 1], c);
 
-        assert!(all_close(&out, &solution, 1e-12));
+        assert_approx_eq!(&Tensor, &out, &solution);
     }
 
     #[test]
@@ -1405,6 +1392,6 @@ mod tests {
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], b, &[5, 2, 4, 1], c);
         let out2 = contract(&[3], &[5, 4, 0], d, &[5, 3, 0, 4], out1);
 
-        assert!(all_close(&out2, &solution, 1e-12));
+        assert_approx_eq!(&Tensor, &out2, &solution, ulps = 32);
     }
 }
