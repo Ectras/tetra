@@ -252,7 +252,7 @@ mod tests {
             Complex64::new(-3.0, -1.0),
             Complex64::new(0.0, 5.0),
         ];
-        let tensor = Tensor::new_from_flat(&[2, 2, 1], a_data, Some(Layout::RowMajor));
+        let tensor = Tensor::new_from_flat(&[2, 2, 1], a_data, Some(Layout::ColumnMajor));
 
         // Hint: Serde always serializes usize as U64
         assert_tokens(
