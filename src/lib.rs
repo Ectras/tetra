@@ -304,7 +304,7 @@ impl Tensor {
     /// Returns the items of the tensor as a flat vector. The elements correspond to
     /// the logical order of elements: If the data is contiguous, a borrowed
     /// reference is returned, otherwise a contiguous copy is made and returned.
-    pub fn elements(&self) -> Cow<Vec<Complex64>> {
+    pub fn elements(&self) -> Cow<'_, Vec<Complex64>> {
         if self.is_contiguous() {
             Cow::Borrowed(&*self.data)
         } else {
