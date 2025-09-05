@@ -42,12 +42,12 @@ pub struct Tensor {
     /// The current permutation of dimensions.
     permutation: Permutation,
 
-    /// The tensor data in column-major order.
+    /// The tensor data in row-major order.
     data: Arc<Vec<Complex64>>,
 }
 
 impl Tensor {
-    /// Creates a new `Tensor` of the given dimensions.
+    /// Creates a new [`Tensor`] of the given dimensions.
     /// The tensor is initialized with zeros.
     /// For a scalar, pass an empty slice (or use [`Tensor::new_scalar`]).
     ///
@@ -77,8 +77,8 @@ impl Tensor {
         }
     }
 
-    /// Creates a new [`Tensor`] with the given dimensions and the corresponding data.
-    /// Assumes data is column-major unless otherwise specified.
+    /// Creates a new [`Tensor`] with the given dimensions and the corresponding
+    /// data. Assumes data is row-major unless otherwise specified.
     ///
     /// # Panics
     /// - Panics if any dimension is zero
@@ -110,15 +110,15 @@ impl Tensor {
         assert_eq!(Tensor::total_items(dimensions), data.len());
 
         // Get the permutation based on the requested layout
-        let (permutation, shape) = match layout.unwrap_or(Layout::ColumnMajor) {
-            Layout::RowMajor => {
+        let (permutation, shape) = match layout.unwrap_or(Layout::RowMajor) {
+            Layout::ColumnMajor => {
                 let perm_line = (0..dimensions.len()).rev().collect_vec();
                 let perm = Permutation::oneline(perm_line);
                 let mut dims = dimensions.to_vec();
                 dims.reverse();
                 (perm, dims)
             }
-            Layout::ColumnMajor => (Permutation::one(dimensions.len()), dimensions.to_vec()),
+            Layout::RowMajor => (Permutation::one(dimensions.len()), dimensions.to_vec()),
         };
 
         // Construct tensor
@@ -129,7 +129,7 @@ impl Tensor {
         }
     }
 
-    /// Creates a new `Tensor` with a single scalar value.
+    /// Creates a new [`Tensor`] with a single scalar value.
     #[inline]
     #[must_use]
     pub fn new_scalar(value: Complex64) -> Self {
@@ -159,13 +159,12 @@ impl Tensor {
     }
 
     /// Computes the flat index given the accessed coordinates.
-    /// Assumes column-major ordering.
+    /// Assumes row-major ordering.
     ///
     /// # Panics
     /// - Panics if the coordinates are invalid
     #[must_use]
     fn compute_index(&self, coordinates: &[usize]) -> usize {
-        // Borrow the data
         assert_eq!(coordinates.len(), self.shape.len());
 
         // Get the unpermuted coordinates
@@ -173,15 +172,13 @@ impl Tensor {
 
         // Compute index
         let mut idx = 0;
-        for i in (0..coords.len()).rev() {
+        for (i, (c, s)) in coords.iter().zip(&self.shape).enumerate() {
             // Check coordinate
-            assert!(coords[i] < self.shape[i]);
+            assert!(c < s);
 
             // Accumulate index
-            let c = coords[i];
-            let s = self.shape[i];
-            if i == coords.len() - 1 {
-                idx = c;
+            if i == 0 {
+                idx = *c;
             } else {
                 idx = s * idx + c;
             }
@@ -272,9 +269,8 @@ impl Tensor {
         self.shape.len()
     }
 
-    /// Transposes the tensor axes according to the permutation.
-    /// This method does not modify the data but only the view, hence it is zero
-    /// cost.
+    /// Transposes the tensor axes according to the permutation. This method does not
+    /// move the actual data.
     #[inline]
     pub fn transpose(&mut self, permutation: &Permutation) {
         self.permutation = permutation * &self.permutation;
@@ -299,7 +295,7 @@ impl Tensor {
 
     /// Returns whether the data is laid out contiguous in memory, i.e., the logical
     /// order of elements matches the physical order in memory. The order is
-    /// cloumn-major.
+    /// row-major.
     #[inline]
     fn is_contiguous(&self) -> bool {
         self.permutation == Permutation::one(self.permutation.len())
@@ -375,21 +371,20 @@ impl Tensor {
     /// # use num_complex::Complex64;
     /// # use tetra::Tensor;
     /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
-    ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
-    ///     Complex64::new(2.0, 2.0), Complex64::new(0.0, 4.0)
+    ///     Complex64::new(0.0, 0.0), Complex64::new(2.0, 2.0),
+    ///     Complex64::new(3.0, 0.0), Complex64::new(0.0, 4.0)
     /// ], None);
     /// let slice = tensor.slice(0, 1); // in numpy notation this would be tensor[1, :]
     /// ```
     pub fn slice(&self, axis: usize, index: usize) -> Self {
         assert!(self.ndim() > 0, "Cannot slice a scalar");
 
-        // Get permutation to make the axis the last one
-        let last_index = self.ndim() - 1;
+        // Get permutation to make the axis the first one
         let initial_perm = (0..self.ndim())
             .map(|i| match i.cmp(&axis) {
-                std::cmp::Ordering::Less => i,
-                std::cmp::Ordering::Equal => last_index,
-                std::cmp::Ordering::Greater => i - 1,
+                std::cmp::Ordering::Less => i + 1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => i,
             })
             .collect_vec();
         let perm_move_back = Permutation::oneline(initial_perm);
@@ -399,7 +394,7 @@ impl Tensor {
         transposed.transpose(&perm_move_back);
 
         // Get the slice
-        let new_shape = &transposed.shape()[..last_index];
+        let new_shape = &transposed.shape()[1..];
         let data = transposed.elements();
         let slice_size = Tensor::total_items(new_shape);
         let slice_data = data[index * slice_size..(index + 1) * slice_size].to_vec();
@@ -600,10 +595,10 @@ mod tests {
     fn test_index_computation() {
         let t = Tensor::new(&[2, 4, 5, 1]);
         assert_eq!(t.compute_index(&[0, 0, 0, 0]), 0);
-        assert_eq!(t.compute_index(&[1, 0, 0, 0]), 1);
-        assert_eq!(t.compute_index(&[0, 1, 0, 0]), 2);
-        assert_eq!(t.compute_index(&[0, 1, 1, 0]), 10);
-        assert_eq!(t.compute_index(&[0, 1, 2, 0]), 18);
+        assert_eq!(t.compute_index(&[0, 0, 1, 0]), 1);
+        assert_eq!(t.compute_index(&[0, 0, 2, 0]), 2);
+        assert_eq!(t.compute_index(&[0, 3, 1, 0]), 16);
+        assert_eq!(t.compute_index(&[1, 1, 2, 0]), 27);
         assert_eq!(t.compute_index(&[1, 3, 4, 0]), 39);
     }
 
@@ -704,8 +699,8 @@ mod tests {
         let a_data = a.raw_data_mut();
         let mut ref_a_data = vec![Complex64::ZERO; 24];
         ref_a_data[0] = Complex64::new(1.0, 2.0);
-        ref_a_data[11] = Complex64::new(-5.0, 0.0);
-        ref_a_data[20] = Complex64::new(0.0, -1.0);
+        ref_a_data[7] = Complex64::new(0.0, -1.0);
+        ref_a_data[21] = Complex64::new(-5.0, 0.0);
         assert_eq!(*a_data, ref_a_data);
 
         // Change a value
@@ -715,8 +710,8 @@ mod tests {
         let b_data = b.raw_data_mut();
         let mut ref_b_data = vec![Complex64::ZERO; 24];
         ref_b_data[0] = Complex64::new(1.0, 2.0);
-        ref_b_data[11] = Complex64::new(-5.0, 0.0);
-        ref_b_data[20] = Complex64::new(0.0, -1.0);
+        ref_b_data[7] = Complex64::new(0.0, -1.0);
+        ref_b_data[21] = Complex64::new(-5.0, 0.0);
         assert_eq!(*b_data, ref_b_data);
     }
 
@@ -776,9 +771,9 @@ mod tests {
     fn test_raw_data_mut_reflects_changes() {
         let mut a = Tensor::new(&[4, 2]);
 
-        assert_eq!(a.get(&[1, 1]), Complex64::ZERO);
+        assert_eq!(a.get(&[2, 1]), Complex64::ZERO);
         a.raw_data_mut()[5] = Complex64::new(2.0, -1.0);
-        assert_eq!(a.get(&[1, 1]), Complex64::new(2.0, -1.0));
+        assert_eq!(a.get(&[2, 1]), Complex64::new(2.0, -1.0));
     }
 
     #[test]
@@ -813,9 +808,9 @@ mod tests {
             Complex64::new(0.0, 0.0),
         ];
         let a_transposed = vec![
-            a_data[0], a_data[3], a_data[1], a_data[4], a_data[2], a_data[5],
+            a_data[0], a_data[2], a_data[4], a_data[1], a_data[3], a_data[5],
         ];
-        let a = Tensor::new_from_flat(&[2, 3], a_data, Some(Layout::RowMajor));
+        let a = Tensor::new_from_flat(&[2, 3], a_data, Some(Layout::ColumnMajor));
         assert_eq!(*a.into_elements(), a_transposed);
     }
 
@@ -862,32 +857,6 @@ mod tests {
     }
 
     #[test]
-    fn test_slice() {
-        let data = int_to_complex(vec![
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-        ]);
-        let matrix = Tensor::new_from_flat(&[2, 3, 4], data, None);
-
-        // Slicing axis 0, index 0 => data[0, :, :]
-        let ref_data_slice_0 = int_to_complex(vec![0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]);
-        let slice = matrix.slice(0, 0);
-        assert_eq!(slice.shape(), vec![3, 4]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_0);
-
-        // Slicing axis 1, index 2 => data[:, 2, :]
-        let ref_data_slice_1 = int_to_complex(vec![4, 5, 10, 11, 16, 17, 22, 23]);
-        let slice = matrix.slice(1, 2);
-        assert_eq!(slice.shape(), vec![2, 4]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_1);
-
-        // Slicing axis 2, index 1 => data[:, :, 1]
-        let ref_data_slice_2 = int_to_complex(vec![6, 7, 8, 9, 10, 11]);
-        let slice = matrix.slice(2, 1);
-        assert_eq!(slice.shape(), vec![2, 3]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_2);
-    }
-
-    #[test]
     fn test_slice_rowmajor() {
         let data = int_to_complex(vec![
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
@@ -895,19 +864,45 @@ mod tests {
         let matrix = Tensor::new_from_flat(&[2, 3, 4], data, Some(Layout::RowMajor));
 
         // Slicing axis 0, index 0 => data[0, :, :]
-        let ref_data_slice_0 = int_to_complex(vec![0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11]);
+        let ref_data_slice_0 = int_to_complex(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
         let slice = matrix.slice(0, 0);
         assert_eq!(slice.shape(), vec![3, 4]);
         assert_eq!(*slice.into_elements(), ref_data_slice_0);
 
         // Slicing axis 1, index 2 => data[:, 2, :]
-        let ref_data_slice_1 = int_to_complex(vec![8, 20, 9, 21, 10, 22, 11, 23]);
+        let ref_data_slice_1 = int_to_complex(vec![8, 9, 10, 11, 20, 21, 22, 23]);
         let slice = matrix.slice(1, 2);
         assert_eq!(slice.shape(), vec![2, 4]);
         assert_eq!(*slice.into_elements(), ref_data_slice_1);
 
         // Slicing axis 2, index 1 => data[:, :, 1]
-        let ref_data_slice_2 = int_to_complex(vec![1, 13, 5, 17, 9, 21]);
+        let ref_data_slice_2 = int_to_complex(vec![1, 5, 9, 13, 17, 21]);
+        let slice = matrix.slice(2, 1);
+        assert_eq!(slice.shape(), vec![2, 3]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_2);
+    }
+
+    #[test]
+    fn test_slice_columnmajor() {
+        let data = int_to_complex(vec![
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+        ]);
+        let matrix = Tensor::new_from_flat(&[2, 3, 4], data, Some(Layout::ColumnMajor));
+
+        // Slicing axis 0, index 0 => data[0, :, :]
+        let ref_data_slice_0 = int_to_complex(vec![0, 6, 12, 18, 2, 8, 14, 20, 4, 10, 16, 22]);
+        let slice = matrix.slice(0, 0);
+        assert_eq!(slice.shape(), vec![3, 4]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_0);
+
+        // Slicing axis 1, index 2 => data[:, 2, :]
+        let ref_data_slice_1 = int_to_complex(vec![4, 10, 16, 22, 5, 11, 17, 23]);
+        let slice = matrix.slice(1, 2);
+        assert_eq!(slice.shape(), vec![2, 4]);
+        assert_eq!(*slice.into_elements(), ref_data_slice_1);
+
+        // Slicing axis 2, index 1 => data[:, :, 1]
+        let ref_data_slice_2 = int_to_complex(vec![6, 8, 10, 7, 9, 11]);
         let slice = matrix.slice(2, 1);
         assert_eq!(slice.shape(), vec![2, 3]);
         assert_eq!(*slice.into_elements(), ref_data_slice_2);
@@ -950,12 +945,19 @@ mod tests {
         let a = contract(&[0, 1], &[0, 1, 2], b, &[2], c);
 
         // Check result in A
-        assert_eq!(a.get(&[0, 0]), Complex64::new(4.0, 0.0));
-        assert_eq!(a.get(&[0, 1]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[0, 2]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[1, 0]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[1, 1]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[1, 2]), Complex64::new(23.0, 0.0));
+        let sol = Tensor::new_from_flat(
+            &[2, 3],
+            vec![
+                Complex64::new(4.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::new(23.0, 0.0),
+            ],
+            None,
+        );
+        assert_approx_eq!(&Tensor, &a, &sol);
     }
 
     #[test]
@@ -1103,8 +1105,8 @@ mod tests {
     fn simple_contraction() {
         // Create tensors
         let solution_data = vec![
-            Complex64::new(1.1913917228026232, -3.7863595014806157),
-            Complex64::new(1.5884274662744466, 1.1478771890194843),
+            Complex64::new(1.0128849570217693, -6.478401030304559),
+            Complex64::new(4.213945652063018, -4.080232397167035),
         ];
         let b_data = vec![
             Complex64::new(1.764052345967664, -0.10321885179355784),
@@ -1137,10 +1139,10 @@ mod tests {
     fn consecutive_contraction() {
         // Create tensors
         let solution_data = vec![
-            Complex64::new(-10.98182728872986, -17.01067985192062),
-            Complex64::new(-21.9947494831352, -1.467445780361377),
-            Complex64::new(25.117181643463176, 19.919494278086834),
-            Complex64::new(16.08302122450077, -30.446009864589634),
+            Complex64::new(9.137086565935931, 6.234714352487627),
+            Complex64::new(41.363577788269154, -10.57235419055667),
+            Complex64::new(-3.773287226662022, 3.5358487730665598),
+            Complex64::new(43.74322139769322, 27.373403196143876),
         ];
         let b_data = vec![
             Complex64::new(0.44122748688504143, 0.996439826913362),

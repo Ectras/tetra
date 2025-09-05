@@ -72,7 +72,7 @@ pub fn matrix_matrix_multiplication(
     let b_cols = b_cols.try_into().unwrap();
     unsafe {
         ffi::cblas_zgemm3m(
-            CBLAS_LAYOUT::CblasColMajor,
+            CBLAS_LAYOUT::CblasRowMajor,
             CBLAS_TRANSPOSE::CblasNoTrans,
             CBLAS_TRANSPOSE::CblasNoTrans,
             a_rows,
@@ -80,12 +80,12 @@ pub fn matrix_matrix_multiplication(
             inner_dim,
             ptr::from_ref(&Complex64::ONE).cast(),
             a_data.as_ptr().cast(),
-            a_rows,
-            b_data.as_ptr().cast(),
             inner_dim,
+            b_data.as_ptr().cast(),
+            b_cols,
             ptr::from_ref(&Complex64::ZERO).cast(),
             out.as_mut_ptr().cast(),
-            a_rows,
+            b_cols,
         );
 
         out.set_len(out.capacity());
@@ -120,9 +120,9 @@ mod tests {
         ];
         let b = vec![Complex64::new(0.0, 5.0), Complex64::new(6.0, 8.0)];
         let solution = vec![
-            Complex64::new(-61.0, -38.0),
-            Complex64::new(-53.0, -29.0),
-            Complex64::new(-34.0, 18.0),
+            Complex64::new(1.0, 28.0),
+            Complex64::new(-46.0, -48.0),
+            Complex64::new(-34.0, -17.0),
         ];
 
         let out = matrix_matrix_multiplication(3, 2, 1, &a, &b);
@@ -148,10 +148,10 @@ mod tests {
             Complex64::new(1.0, -1.0),
         ];
         let solution = vec![
-            Complex64::new(0.0, -1.0),
-            Complex64::new(-1.0, 1.0),
-            Complex64::new(1.0, 0.0),
-            Complex64::new(1.0, -2.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(-2.0, -2.0),
+            Complex64::new(-3.0, 0.0),
+            Complex64::new(2.0, 1.0),
         ];
 
         let out = matrix_matrix_multiplication(2, 3, 2, &a, &b);
