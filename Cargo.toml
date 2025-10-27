@@ -19,7 +19,7 @@ rand = ["dep:rand"]
 [dependencies]
 num-complex = { version = "0.4.6" }
 hptt = { git = "https://github.com/Ectras/rust-hptt.git" }
-lapack = "0.19.0"
+lapack = "0.20.0"
 itertools = "0.14.0"
 permutation = "0.4.1"
 serde = { version = "1.0.217", optional = true }
