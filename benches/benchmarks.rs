@@ -1,4 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use itertools::Itertools;
 use num_complex::Complex64;
 use rand::{
