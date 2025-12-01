@@ -30,7 +30,7 @@ float-cmp = "0.10.0"
 bytemuck = { version = "1.23.2", features = ["derive"] }
 
 [dev-dependencies]
-criterion = "0.7.0"
+criterion = "0.8.0"
 rand = "0.9.0"
 serde_test = "1.0.176"
 
