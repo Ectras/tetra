@@ -13,8 +13,24 @@ where
     let data = rng
         .sample_iter(StandardUniform)
         .take(2 * Tensor::total_items(shape))
-        .tuple_windows()
-        .map(|(re, im)| Complex64::new(re, im))
+        .chunks(2)
+        .into_iter()
+        .map(|chunk| {
+            let [re, im] = chunk.collect_array().unwrap();
+            Complex64::new(re, im)
+        })
         .collect();
     Tensor::new_from_flat(shape, data, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rand_tensor() {
+        let mut rng = rand::rng();
+        let tensor = random_tensor(&[5, 1, 4], &mut rng);
+        assert_eq!(tensor.len(), 20);
+    }
 }
