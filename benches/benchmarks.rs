@@ -38,9 +38,9 @@ fn consecutive_contraction(
 
 pub fn contraction_benchmark(criterion: &mut Criterion) {
     // Create tensors
-    let b = random_tensor(&[4, 4, 3, 10]);
-    let c = random_tensor(&[6, 3, 5, 4]);
-    let d = random_tensor(&[6, 5, 4]);
+    let b = random_tensor(&[8, 5, 7, 10]);
+    let c = random_tensor(&[6, 7, 5, 5]);
+    let d = random_tensor(&[6, 5, 8]);
 
     let mut group = criterion.benchmark_group("contractions");
     group.bench_function("contraction", |bench| {

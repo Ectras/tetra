@@ -6,7 +6,7 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
 
-use crate::{mkl::matrix_matrix_multiplication, utils::wrap};
+use crate::utils::wrap;
 
 #[cfg(feature = "serde")]
 pub mod serde;
@@ -14,10 +14,19 @@ pub mod serde;
 #[cfg(feature = "rand")]
 pub mod random;
 
+#[cfg(feature = "mkl")]
 mod mkl;
-mod utils;
-
+#[cfg(feature = "mkl")]
+use mkl::matrix_matrix_multiplication;
+#[cfg(feature = "mkl")]
 pub use mkl::max_threads;
+
+#[cfg(not(feature = "mkl"))]
+mod faer;
+#[cfg(not(feature = "mkl"))]
+use faer::matrix_matrix_multiplication;
+
+mod utils;
 
 // pub mod decomposition;
 
