@@ -6,11 +6,12 @@ A library for `Complex64` tensors, mainly focused on fast contraction.
 
 ## Key points
 - Shared data ownership using `Arc`
-- Efficient contractions using MKLs `zgemm3m`
 - Zero-cost permutation until raw data access is needed
 - Efficient transposition using [hptt](https://github.com/springer13/hptt)
+- Optional: Efficient contractions using MKLs `zgemm3m`
 
 ### Crate features
+- `mkl`: Use 64-bit MKL (otherwise falls back to a pure Rust implementation)
 - `serde`: Serialization support
 - `rand`: Generation of random tensors
 
