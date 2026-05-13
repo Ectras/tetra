@@ -20,7 +20,7 @@ where
             Complex64::new(re, im)
         })
         .collect();
-    Tensor::new_from_flat(shape, data, None)
+    Tensor::new_from_flat(shape, data)
 }
 
 #[cfg(test)]
