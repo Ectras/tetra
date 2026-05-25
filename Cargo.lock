@@ -714,7 +714,7 @@ dependencies = [
 [[package]]
 name = "tblis"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-tblis#3169c206f19cbdc8cc17ebe725490e8784e7d111"
+source = "git+https://github.com/Ectras/rust-tblis#b95982e9aef569470da2372222a9eca38a1fba38"
 dependencies = [
  "num-complex",
  "tblis-sys",
@@ -723,9 +723,10 @@ dependencies = [
 [[package]]
 name = "tblis-sys"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-tblis#3169c206f19cbdc8cc17ebe725490e8784e7d111"
+source = "git+https://github.com/Ectras/rust-tblis#b95982e9aef569470da2372222a9eca38a1fba38"
 dependencies = [
  "bindgen",
+ "cc",
  "cmake",
  "link-cplusplus",
  "openmp-sys",
