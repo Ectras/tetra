@@ -714,7 +714,7 @@ dependencies = [
 [[package]]
 name = "tblis"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-tblis#65e2c9ffdc9123882bdfb09d11767eefc90dd2ee"
+source = "git+https://github.com/Ectras/rust-tblis#924c897b5558187319eec4faea92b56a8de33351"
 dependencies = [
  "num-complex",
  "tblis-sys",
@@ -723,7 +723,7 @@ dependencies = [
 [[package]]
 name = "tblis-sys"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-tblis#65e2c9ffdc9123882bdfb09d11767eefc90dd2ee"
+source = "git+https://github.com/Ectras/rust-tblis#924c897b5558187319eec4faea92b56a8de33351"
 dependencies = [
  "bindgen",
  "cc",
