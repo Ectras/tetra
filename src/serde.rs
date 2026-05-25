@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use permutation::Permutation;
 use serde::{
     de::{self, Visitor},
     ser::SerializeStruct,
@@ -9,21 +8,7 @@ use serde::{
 
 use crate::Tensor;
 
-const FIELDS: &[&str] = &["shape", "permutation", "data"];
-
-/// Converts a permutation to a vector that can be serialized.
-/// The vector is in zero-based oneline notation (see [`Permutation::oneline`]).
-fn permutation_to_raw(perm: &Permutation) -> Vec<usize> {
-    let normalized = (*perm).clone().normalize(false);
-    (0..normalized.len())
-        .map(|idx| normalized.apply_idx(idx))
-        .collect()
-}
-
-/// Converts a vector in zero-based oneline notation to a permutation.
-fn raw_to_permutation(raw: &[usize]) -> Permutation {
-    Permutation::oneline(raw.to_vec())
-}
+const FIELDS: &[&str] = &["shape", "data"];
 
 // Adapted from https://serde.rs/impl-serialize.html
 impl Serialize for Tensor {
@@ -34,8 +19,7 @@ impl Serialize for Tensor {
         // Serialize tensor
         let mut state = serializer.serialize_struct("Tensor", FIELDS.len())?;
         state.serialize_field(FIELDS[0], &self.shape)?;
-        state.serialize_field(FIELDS[1], &permutation_to_raw(&self.permutation))?;
-        state.serialize_field(FIELDS[2], &*self.data)?;
+        state.serialize_field(FIELDS[1], &*self.data)?;
         state.end()
     }
 }
@@ -48,7 +32,6 @@ impl<'de> Deserialize<'de> for Tensor {
     {
         enum Field {
             Shape,
-            Permutation,
             Data,
         }
 
@@ -72,7 +55,6 @@ impl<'de> Deserialize<'de> for Tensor {
                     {
                         match value {
                             "shape" => Ok(Field::Shape),
-                            "permutation" => Ok(Field::Permutation),
                             "data" => Ok(Field::Data),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -99,18 +81,13 @@ impl<'de> Deserialize<'de> for Tensor {
                 let shape = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
-                let permutation: Vec<_> = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
                 let data = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(2, &self))?;
 
                 // Create the tensor
-                let permutation = raw_to_permutation(&permutation);
                 Ok(Tensor {
                     shape,
-                    permutation,
                     data: Arc::new(data),
                 })
             }
@@ -120,7 +97,6 @@ impl<'de> Deserialize<'de> for Tensor {
                 A: serde::de::MapAccess<'de>,
             {
                 let mut shape = None;
-                let mut permutation = None;
                 let mut data = None;
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -129,12 +105,6 @@ impl<'de> Deserialize<'de> for Tensor {
                                 return Err(serde::de::Error::duplicate_field("shape"));
                             }
                             shape = Some(map.next_value()?);
-                        }
-                        Field::Permutation => {
-                            if permutation.is_some() {
-                                return Err(serde::de::Error::duplicate_field("permutation"));
-                            }
-                            permutation = Some(map.next_value()?);
                         }
                         Field::Data => {
                             if data.is_some() {
@@ -147,15 +117,11 @@ impl<'de> Deserialize<'de> for Tensor {
 
                 // Unpack the fields
                 let shape = shape.ok_or_else(|| de::Error::missing_field("shape"))?;
-                let permutation: Vec<usize> =
-                    permutation.ok_or_else(|| de::Error::missing_field("permutation"))?;
                 let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
 
                 // Create the tensor
-                let permutation = raw_to_permutation(&permutation);
                 Ok(Tensor {
                     shape,
-                    permutation,
                     data: Arc::new(data),
                 })
             }
@@ -168,22 +134,17 @@ impl<'de> Deserialize<'de> for Tensor {
 #[cfg(test)]
 mod tests {
     use num_complex::Complex64;
-    use permutation::Permutation;
     use serde::Serialize;
 
-    use crate::{Layout, Tensor};
+    use crate::Tensor;
     use serde_test::{assert_tokens, Token};
-
-    use super::{permutation_to_raw, raw_to_permutation};
 
     #[derive(Debug)]
     struct TensorEqWrapper(Tensor);
 
     impl PartialEq for TensorEqWrapper {
         fn eq(&self, other: &Self) -> bool {
-            self.0.shape == other.0.shape
-                && self.0.permutation == other.0.permutation
-                && self.0.data == other.0.data
+            self.0.shape == other.0.shape && self.0.data == other.0.data
         }
     }
 
@@ -206,16 +167,6 @@ mod tests {
     }
 
     #[test]
-    fn test_permutation_convert() {
-        let p1 = Permutation::oneline(vec![2, 0, 1, 3]);
-        let p2 = Permutation::oneline(vec![1, 2, 0, 3]).inverse();
-        let p3 = &p1 * &p2;
-        assert_eq!(raw_to_permutation(&permutation_to_raw(&p1)), p1);
-        assert_eq!(raw_to_permutation(&permutation_to_raw(&p2)), p2);
-        assert_eq!(raw_to_permutation(&permutation_to_raw(&p3)), p3);
-    }
-
-    #[test]
     fn test_serde_scalar() {
         let tensor = Tensor::new_scalar(Complex64::new(1.0, 2.0));
 
@@ -224,12 +175,9 @@ mod tests {
             &[
                 serde_test::Token::Struct {
                     name: "Tensor",
-                    len: 3,
+                    len: 2,
                 },
                 Token::Str("shape"),
-                Token::Seq { len: Some(0) },
-                Token::SeqEnd,
-                Token::Str("permutation"),
                 Token::Seq { len: Some(0) },
                 Token::SeqEnd,
                 Token::Str("data"),
@@ -252,7 +200,7 @@ mod tests {
             Complex64::new(-3.0, -1.0),
             Complex64::new(0.0, 5.0),
         ];
-        let tensor = Tensor::new_from_flat(&[2, 2, 1], a_data, Some(Layout::ColumnMajor));
+        let tensor = Tensor::new_from_flat(&[2, 2, 1], a_data);
 
         // Hint: Serde always serializes usize as U64
         assert_tokens(
@@ -260,19 +208,13 @@ mod tests {
             &[
                 serde_test::Token::Struct {
                     name: "Tensor",
-                    len: 3,
+                    len: 2,
                 },
                 Token::Str("shape"),
                 Token::Seq { len: Some(3) },
-                Token::U64(1),
                 Token::U64(2),
-                Token::U64(2),
-                Token::SeqEnd,
-                Token::Str("permutation"),
-                Token::Seq { len: Some(3) },
                 Token::U64(2),
                 Token::U64(1),
-                Token::U64(0),
                 Token::SeqEnd,
                 Token::Str("data"),
                 Token::Seq { len: Some(4) },

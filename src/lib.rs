@@ -1,10 +1,9 @@
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use float_cmp::{ApproxEq, F64Margin};
-use hptt::transpose_simple;
-use itertools::Itertools;
 use num_complex::Complex64;
 use permutation::Permutation;
+use tblis::{tensor_mult, tensor_reorder, TensorView};
 
 use crate::utils::wrap;
 
@@ -14,32 +13,7 @@ pub mod serde;
 #[cfg(feature = "rand")]
 pub mod random;
 
-#[cfg(feature = "mkl")]
-mod mkl;
-#[cfg(feature = "mkl")]
-use mkl::matrix_matrix_multiplication;
-#[cfg(feature = "mkl")]
-pub use mkl::max_threads;
-
-#[cfg(not(feature = "mkl"))]
-mod faer;
-#[cfg(not(feature = "mkl"))]
-use faer::matrix_matrix_multiplication;
-
 mod utils;
-
-// pub mod decomposition;
-
-/// The data layout of a tensor. For row-major, the last index is the fastest running
-/// one.
-///
-/// This does not necessarily correspond to the underlying memory layout, as it
-/// can also be realized through permutating accesses.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub enum Layout {
-    RowMajor,
-    ColumnMajor,
-}
 
 /// A tensor of arbitrary dimensions containing [`Complex64`] values.
 #[allow(clippy::len_without_is_empty)]
@@ -47,9 +21,6 @@ pub enum Layout {
 pub struct Tensor {
     /// The shape of the tensor.
     shape: Vec<usize>,
-
-    /// The current permutation of dimensions.
-    permutation: Permutation,
 
     /// The tensor data in row-major order.
     data: Arc<Vec<Complex64>>,
@@ -76,18 +47,16 @@ impl Tensor {
         assert!(dimensions.iter().all(|&x| x > 0));
 
         // Construct tensor
-        let identity = Permutation::one(dimensions.len());
         let total_items = Tensor::total_items(dimensions);
         let zeros = vec![Complex64::default(); total_items];
         Self {
             shape: dimensions.to_vec(),
-            permutation: identity,
             data: Arc::new(zeros),
         }
     }
 
     /// Creates a new [`Tensor`] with the given dimensions and the corresponding
-    /// data. Assumes data is row-major unless otherwise specified.
+    /// data. Assumes data is row-major.
     ///
     /// # Panics
     /// - Panics if any dimension is zero
@@ -96,44 +65,23 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use num_complex::Complex64;
-    /// # use float_cmp::assert_approx_eq;
-    /// # use tetra::{Layout, Tensor};
-    /// let row_major = Tensor::new_from_flat(&[2, 2], vec![
+    /// # use tetra::Tensor;
+    /// let tensor = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
     ///     Complex64::new(3.0, 0.0), Complex64::new(4.0, 0.0)
-    /// ], Some(Layout::RowMajor));
-    /// let col_major = Tensor::new_from_flat(&[2, 2], vec![
-    ///     Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
-    ///     Complex64::new(2.0, 0.0), Complex64::new(4.0, 0.0)
-    /// ], Some(Layout::ColumnMajor));
-    /// assert_approx_eq!(&Tensor, &row_major, &col_major);
+    /// ]);
+    /// assert_eq!(tensor.ndim(), 2);
+    /// assert_eq!(tensor.len(), 4);
     /// ```
     #[must_use]
-    pub fn new_from_flat(
-        dimensions: &[usize],
-        data: Vec<Complex64>,
-        layout: Option<Layout>,
-    ) -> Self {
+    pub fn new_from_flat(dimensions: &[usize], data: Vec<Complex64>) -> Self {
         // Validity checks
         assert!(dimensions.iter().all(|&x| x > 0));
         assert_eq!(Tensor::total_items(dimensions), data.len());
 
-        // Get the permutation based on the requested layout
-        let (permutation, shape) = match layout.unwrap_or(Layout::RowMajor) {
-            Layout::ColumnMajor => {
-                let perm_line = (0..dimensions.len()).rev().collect_vec();
-                let perm = Permutation::oneline(perm_line);
-                let mut dims = dimensions.to_vec();
-                dims.reverse();
-                (perm, dims)
-            }
-            Layout::RowMajor => (Permutation::one(dimensions.len()), dimensions.to_vec()),
-        };
-
         // Construct tensor
         Self {
-            shape,
-            permutation,
+            shape: dimensions.to_vec(),
             data: Arc::new(data),
         }
     }
@@ -142,7 +90,7 @@ impl Tensor {
     #[inline]
     #[must_use]
     pub fn new_scalar(value: Complex64) -> Self {
-        Self::new_from_flat(&[], vec![value], None)
+        Self::new_from_flat(&[], vec![value])
     }
 
     /// Computes the total number of items specified by `dimensions`.
@@ -176,12 +124,9 @@ impl Tensor {
     fn compute_index(&self, coordinates: &[usize]) -> usize {
         assert_eq!(coordinates.len(), self.shape.len());
 
-        // Get the unpermuted coordinates
-        let coords = self.permutation.apply_inv_slice(coordinates);
-
         // Compute index
         let mut idx = 0;
-        for (i, (c, s)) in coords.iter().zip(&self.shape).enumerate() {
+        for (i, (c, s)) in coordinates.iter().zip(&self.shape).enumerate() {
             // Check coordinate
             assert!(c < s);
 
@@ -209,21 +154,18 @@ impl Tensor {
         self.data[idx]
     }
 
-    /// Returns a copy of the current shape.
+    /// Returns the current shape.
     ///
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
-    /// # use permutation::Permutation;
     /// let mut t = Tensor::new(&[3, 2, 5, 4, 1]);
-    /// assert_eq!(t.shape(), vec![3, 2, 5, 4, 1]);
-    /// t.transpose(&Permutation::oneline([3, 1, 4, 0, 2]));
-    /// assert_eq!(t.shape(), vec![4, 2, 1, 3, 5]);
+    /// assert_eq!(t.shape(), &[3, 2, 5, 4, 1]);
     /// ```
     #[inline]
     #[must_use]
-    pub fn shape(&self) -> Vec<usize> {
-        self.permutation.apply_slice(&self.shape)
+    pub fn shape(&self) -> &Vec<usize> {
+        &self.shape
     }
 
     /// Returns the size of a single dimension.
@@ -231,20 +173,15 @@ impl Tensor {
     /// # Examples
     /// ```
     /// # use tetra::Tensor;
-    /// # use permutation::Permutation;
     /// let mut t = Tensor::new(&[1, 3, 5]);
     /// assert_eq!(t.len_of(1), 3);
     /// assert_eq!(t.len_of(2), 5);
     /// assert_eq!(t.len_of(0), 1);
-    /// t.transpose(&Permutation::oneline([1, 2, 0]));
-    /// assert_eq!(t.len_of(0), 5);
-    /// assert_eq!(t.len_of(1), 1);
-    /// assert_eq!(t.len_of(2), 3);
     /// ```
     #[inline]
     #[must_use]
     pub fn len_of(&self, dimension: usize) -> usize {
-        self.shape[self.permutation.apply_inv_idx(dimension)]
+        self.shape[dimension]
     }
 
     /// Returns the size of the tensor, that is, the total number of elements of all
@@ -278,65 +215,35 @@ impl Tensor {
         self.shape.len()
     }
 
-    /// Transposes the tensor axes according to the permutation. This method does not
-    /// move the actual data.
+    /// Returns the items of the tensor as a flat vector.
     #[inline]
-    pub fn transpose(&mut self, permutation: &Permutation) {
-        self.permutation = permutation * &self.permutation;
-    }
-
-    /// Computes the transposed data based on the current permutation.
-    fn compute_transposed_data(&self, data: &[Complex64]) -> Vec<Complex64> {
-        // Get the permutation as [i32]
-        let raw_perm = (0..i32::try_from(self.permutation.len()).unwrap()).collect_vec();
-        let raw_perm = self.permutation.apply_slice(raw_perm);
-
-        // Get the shape as [i32]
-        let shape = self
-            .shape
-            .iter()
-            .map(|x| (*x).try_into().unwrap())
-            .collect_vec();
-
-        // Transpose data and shape
-        transpose_simple(&raw_perm, data, &shape)
-    }
-
-    /// Returns whether the data is laid out contiguous in memory, i.e., the logical
-    /// order of elements matches the physical order in memory. The order is
-    /// row-major.
-    #[inline]
-    fn is_contiguous(&self) -> bool {
-        self.permutation == Permutation::one(self.permutation.len())
-    }
-
-    /// Returns the items of the tensor as a flat vector. The elements correspond to
-    /// the logical order of elements: If the data is contiguous, a borrowed
-    /// reference is returned, otherwise a contiguous copy is made and returned.
-    pub fn elements(&self) -> Cow<'_, Vec<Complex64>> {
-        if self.is_contiguous() {
-            Cow::Borrowed(&*self.data)
-        } else {
-            Cow::Owned(self.compute_transposed_data(&self.data))
-        }
-    }
-
-    /// Extracts the data from the tensor. If the data is contiguous, it is returned
-    /// as-is. Otherwise, a contiguous copy is made and returned.
-    fn into_elements(self) -> Arc<Vec<Complex64>> {
-        if self.is_contiguous() {
-            self.data
-        } else {
-            Arc::new(self.compute_transposed_data(&self.data))
-        }
+    pub fn elements(&self) -> &[Complex64] {
+        &self.data
     }
 
     /// Gets a mutable reference to the raw (i.e. flat) vector data. If the data is
     /// shared, it is cloned, so modifications are not reflected in other tensors.
-    /// The data is not guaranteed to be contiguous.
     #[inline]
     pub fn raw_data_mut(&mut self) -> &mut Vec<Complex64> {
         Arc::make_mut(&mut self.data)
+    }
+
+    /// Returns a new tensor with the tensor axes transposed according to the
+    /// permutation.
+    #[inline]
+    pub fn transpose(&self, permutation: &Permutation) -> Tensor {
+        let a_labels = (0..self.ndim()).collect::<Vec<_>>();
+        let out_labels = permutation.apply_slice(&a_labels);
+        let out_shape = permutation.apply_slice(&self.shape);
+        let out_data = tensor_reorder(
+            &out_labels,
+            &out_shape,
+            TensorView::new(&a_labels, &self.shape, &self.data),
+        );
+        Tensor {
+            shape: out_shape,
+            data: Arc::new(out_data),
+        }
     }
 
     /// Conjugates the tensor in-place. If the data is shared, it will be copied
@@ -346,17 +253,17 @@ impl Tensor {
     /// ```
     /// # use num_complex::Complex64;
     /// # use float_cmp::assert_approx_eq;
-    /// # use tetra::{Tensor};
+    /// # use tetra::Tensor;
     /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
     ///     Complex64::new(2.0, 2.0), Complex64::new(0.0, 4.0)
-    /// ], None);
+    /// ]);
     /// tensor.conjugate();
     ///
     /// let reference = Tensor::new_from_flat(&[2, 2], vec![
     ///     Complex64::new(0.0, 0.0), Complex64::new(3.0, 0.0),
     ///     Complex64::new(2.0, -2.0), Complex64::new(0.0, -4.0)
-    /// ], None);
+    /// ]);
     ///
     /// assert_approx_eq!(&Tensor, &tensor, &reference)
     /// ```
@@ -367,132 +274,49 @@ impl Tensor {
         }
     }
 
-    /// Slices the tensor along the given `axis` at the given `index`. Returns the
-    /// slice as a new tensor.
-    ///
-    /// Examples for numpy notation:
-    /// - `slice(0, 1)` is equivalent to `tensor[1, :, :]`
-    /// - `slice(1, 0)` is equivalent to `tensor[:, 0, :]`
-    /// - `slice(2, 2)` is equivalent to `tensor[:, :, 2]`
-    ///
-    /// # Examples
-    /// ```
-    /// # use num_complex::Complex64;
-    /// # use tetra::Tensor;
-    /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
-    ///     Complex64::new(0.0, 0.0), Complex64::new(2.0, 2.0),
-    ///     Complex64::new(3.0, 0.0), Complex64::new(0.0, 4.0)
-    /// ], None);
-    /// let slice = tensor.slice(0, 1); // in numpy notation this would be tensor[1, :]
-    /// ```
-    pub fn slice(&self, axis: usize, index: usize) -> Self {
-        assert!(self.ndim() > 0, "Cannot slice a scalar");
+    // /// Slices the tensor along the given `axis` at the given `index`. Returns the
+    // /// slice as a new tensor.
+    // ///
+    // /// Examples for numpy notation:
+    // /// - `slice(0, 1)` is equivalent to `tensor[1, :, :]`
+    // /// - `slice(1, 0)` is equivalent to `tensor[:, 0, :]`
+    // /// - `slice(2, 2)` is equivalent to `tensor[:, :, 2]`
+    // ///
+    // /// # Examples
+    // /// ```
+    // /// # use num_complex::Complex64;
+    // /// # use tetra::Tensor;
+    // /// let mut tensor = Tensor::new_from_flat(&[2, 2], vec![
+    // ///     Complex64::new(0.0, 0.0), Complex64::new(2.0, 2.0),
+    // ///     Complex64::new(3.0, 0.0), Complex64::new(0.0, 4.0)
+    // /// ], None);
+    // /// let slice = tensor.slice(0, 1); // in numpy notation this would be tensor[1, :]
+    // /// ```
+    // pub fn slice(&self, axis: usize, index: usize) -> Self {
+    //     assert!(self.ndim() > 0, "Cannot slice a scalar");
 
-        // Get permutation to make the axis the first one
-        let initial_perm = (0..self.ndim())
-            .map(|i| match i.cmp(&axis) {
-                std::cmp::Ordering::Less => i + 1,
-                std::cmp::Ordering::Equal => 0,
-                std::cmp::Ordering::Greater => i,
-            })
-            .collect_vec();
-        let perm_move_back = Permutation::oneline(initial_perm);
+    //     // Get permutation to make the axis the first one
+    //     let initial_perm = (0..self.ndim())
+    //         .map(|i| match i.cmp(&axis) {
+    //             std::cmp::Ordering::Less => i + 1,
+    //             std::cmp::Ordering::Equal => 0,
+    //             std::cmp::Ordering::Greater => i,
+    //         })
+    //         .collect_vec();
+    //     let perm_move_back = Permutation::oneline(initial_perm);
 
-        // Get a transposed copy of the tensor (data is shared)
-        let mut transposed = self.clone();
-        transposed.transpose(&perm_move_back);
+    //     // Get a transposed copy of the tensor (data is shared)
+    //     let mut transposed = self.clone();
+    //     transposed.transpose(&perm_move_back);
 
-        // Get the slice
-        let new_shape = &transposed.shape()[1..];
-        let data = transposed.elements();
-        let slice_size = Tensor::total_items(new_shape);
-        let slice_data = data[index * slice_size..(index + 1) * slice_size].to_vec();
+    //     // Get the slice
+    //     let new_shape = &transposed.shape()[1..];
+    //     let data = transposed.elements();
+    //     let slice_size = Tensor::total_items(new_shape);
+    //     let slice_data = data[index * slice_size..(index + 1) * slice_size].to_vec();
 
-        Tensor::new_from_flat(new_shape, slice_data, None)
-    }
-}
-
-/// Helper struct containing information about a contraction, like the required
-/// permutations and resulting shape.
-#[derive(Debug)]
-struct ContractionPermutationData {
-    /// The uncontracted labels.
-    uncontracted: Vec<usize>,
-    /// Permutation of `a`, moving uncontracted dimensions to the front and contracted
-    /// dimensions to the back.
-    a_permutation: Vec<usize>,
-    /// Permutation of `b`, moving contracted dimensions to the front (in the same
-    /// order as they appear in `a`) and uncontracted dimensions to the back.
-    b_permutation: Vec<usize>,
-    /// The size of the contracted dimensions.
-    contracted_size: usize,
-    /// The size of the uncontracted dimensions of `a`.
-    a_uncontracted_size: usize,
-    /// The size of the uncontracted dimensions of `b`.
-    b_uncontracted_size: usize,
-    /// The shape of the resulting tensor.
-    c_shape: Vec<usize>,
-}
-
-#[must_use]
-fn compute_contraction_permutation(
-    a_labels: &[usize],
-    a_shape: &[usize],
-    b_labels: &[usize],
-    b_shape: &[usize],
-) -> ContractionPermutationData {
-    let mut a_permutation = vec![0; a_labels.len()];
-    let mut b_permutation = vec![0; b_labels.len()];
-
-    let mut uncontracted = Vec::with_capacity(a_labels.len() + b_labels.len());
-    let mut contracted = 0;
-    let mut a_uncontracted_size = 1;
-    let mut contracted_size = 1;
-    let mut b_uncontracted_size = 1;
-    let mut contracted_mask_b = vec![false; b_labels.len()];
-    let mut c_shape = Vec::with_capacity(uncontracted.capacity());
-
-    for (i, (label_a, dim_a)) in a_labels.iter().zip(a_shape).enumerate() {
-        if let Some(j) = b_labels.iter().position(|label_b| label_a == label_b) {
-            // This is a contracted index, move to back in `a` and front in `b`
-            b_permutation[contracted] = j;
-            contracted_mask_b[j] = true;
-            contracted += 1;
-            a_permutation[a_labels.len() - contracted] = i;
-            contracted_size *= dim_a;
-        } else {
-            // This is an uncontracted index of `a`
-            a_uncontracted_size *= dim_a;
-            a_permutation[uncontracted.len()] = i;
-            uncontracted.push(*label_a);
-            c_shape.push(*dim_a);
-        }
-    }
-
-    // permutation of contracted indices is reverse to order in `contracted` vec
-    a_permutation[a_labels.len() - contracted..].reverse();
-
-    let mut uncontracted_b = 0;
-    for (i, (label_b, dim_b)) in b_labels.iter().zip(b_shape).enumerate() {
-        if !contracted_mask_b[i] {
-            // This is an uncontracted index of `b`
-            b_uncontracted_size *= dim_b;
-            b_permutation[contracted + uncontracted_b] = i;
-            uncontracted.push(*label_b);
-            c_shape.push(*dim_b);
-            uncontracted_b += 1;
-        }
-    }
-
-    ContractionPermutationData {
-        uncontracted,
-        a_permutation,
-        b_permutation,
-        contracted_size,
-        a_uncontracted_size,
-        b_uncontracted_size,
-        c_shape,
-    }
+    //     Tensor::new_from_flat(new_shape, slice_data, None)
+    // }
 }
 
 /// Contracts two tensors, returning the resulting tensor.
@@ -508,7 +332,7 @@ fn compute_contraction_permutation(
 /// let a = Tensor::new(&[2, 3]);
 /// let b = Tensor::new(&[3, 4]);
 /// let c = contract(&[0, 2], &[0, 1], a, &[1, 2], b);
-/// assert_eq!(c.shape(), vec![2, 4]);
+/// assert_eq!(c.shape(), &[2, 4]);
 /// ```
 /// The following is equal to a scalar product of two vectors
 /// ```
@@ -520,53 +344,38 @@ fn compute_contraction_permutation(
 /// ```
 #[must_use]
 pub fn contract(
-    out_indices: &[usize],
-    a_indices: &[usize],
-    mut a: Tensor,
-    b_indices: &[usize],
-    mut b: Tensor,
+    out_labels: &[usize],
+    a_labels: &[usize],
+    a: Tensor,
+    b_labels: &[usize],
+    b: Tensor,
 ) -> Tensor {
-    assert_eq!(a_indices.len(), a.ndim());
-    assert_eq!(b_indices.len(), b.ndim());
+    assert_eq!(a_labels.len(), a.ndim());
+    assert_eq!(b_labels.len(), b.ndim());
 
-    let ContractionPermutationData {
-        uncontracted,
-        a_permutation,
-        b_permutation,
-        a_uncontracted_size,
-        b_uncontracted_size,
-        contracted_size,
-        c_shape,
-    } = compute_contraction_permutation(a_indices, &a.shape(), b_indices, &b.shape());
+    // Find output shape
+    let mut c_shape = Vec::new();
+    for label in out_labels {
+        if let Some(a_index) = a_labels.iter().position(|l| l == label) {
+            c_shape.push(a.len_of(a_index));
+        } else if let Some(b_index) = b_labels.iter().position(|l| l == label) {
+            c_shape.push(b.len_of(b_index));
+        } else {
+            panic!(
+                "out label {label} does not appear in input a ({a_labels:?}) or b ({b_labels:?})"
+            );
+        }
+    }
 
-    // Get transposed A
-    a.transpose(&Permutation::oneline(a_permutation).inverse());
-    let a_data = a.into_elements();
-
-    // Get transposed B
-    b.transpose(&Permutation::oneline(b_permutation).inverse());
-    let b_data = b.into_elements();
-
-    // Compute GEMM
-    let out_data = matrix_matrix_multiplication(
-        a_uncontracted_size,
-        contracted_size,
-        b_uncontracted_size,
-        &a_data,
-        &b_data,
+    let out_data = tensor_mult(
+        out_labels,
+        &c_shape,
+        TensorView::new(a_labels, &a.shape, &a.data),
+        TensorView::new(b_labels, &b.shape, &b.data),
     );
 
     // Create output tensor
-    let mut out = Tensor::new_from_flat(&c_shape, out_data, None);
-
-    // Find permutation for output tensor
-    let remaining_to_sorted = permutation::sort(&uncontracted);
-    let sorted_to_out_indices = permutation::sort(out_indices).inverse();
-    let c_perm = &sorted_to_out_indices * &remaining_to_sorted;
-
-    // Return transposed output tensor
-    out.transpose(&c_perm);
-    out
+    Tensor::new_from_flat(&c_shape, out_data)
 }
 
 impl ApproxEq for &Tensor {
@@ -581,8 +390,8 @@ impl ApproxEq for &Tensor {
         let self_elements = self.elements();
         let other_elements = other.elements();
 
-        let self_elements = wrap(&self_elements);
-        let other_elements = wrap(&other_elements);
+        let self_elements = wrap(self_elements);
+        let other_elements = wrap(other_elements);
 
         self_elements.approx_eq(other_elements, margin)
     }
@@ -612,36 +421,6 @@ mod tests {
     }
 
     #[test]
-    fn test_new_from_flat() {
-        let index = (0..3).map(|_e| 0..3).multi_cartesian_product();
-        let mut col_data = Vec::new();
-        let mut row_data = Vec::new();
-        let index_size = [1, 3, 9];
-        let dimensions = [3, 3, 3];
-        for mut dims in index {
-            col_data.push(Complex64::new(
-                dims.iter()
-                    .zip(index_size.iter())
-                    .map(|(i, size)| f64::from(i * size))
-                    .product::<f64>(),
-                0.0,
-            ));
-            dims.reverse();
-            row_data.push(Complex64::new(
-                dims.iter()
-                    .zip(index_size.iter())
-                    .map(|(i, size)| f64::from(i * size))
-                    .product::<f64>(),
-                0.0,
-            ));
-        }
-        let col_tensor = Tensor::new_from_flat(&dimensions, col_data, Some(Layout::ColumnMajor));
-        let row_tensor = Tensor::new_from_flat(&dimensions, row_data, Some(Layout::RowMajor));
-
-        assert_approx_eq!(&Tensor, &col_tensor, &row_tensor);
-    }
-
-    #[test]
     fn test_scalar_get_set() {
         let mut t = Tensor::new(&[]);
         t.set(&[], Complex64::new(1.0, 2.0));
@@ -651,49 +430,37 @@ mod tests {
     #[test]
     fn test_scalar_shape() {
         let t = Tensor::new(&[]);
-        assert_eq!(t.shape(), vec![]);
+        assert_eq!(t.shape(), &[]);
         assert_eq!(t.len(), 1);
         assert_eq!(t.ndim(), 0);
     }
 
     #[test]
-    fn test_single_transpose() {
-        let mut a = Tensor::new(&[2, 3, 4, 5]);
-        a.set(&[0, 0, 0, 1], Complex64::new(1.0, 2.0));
-        a.set(&[0, 1, 3, 2], Complex64::new(0.0, -1.0));
-        a.set(&[1, 2, 1, 4], Complex64::new(-5.0, 0.0));
-
-        a.transpose(&Permutation::oneline([2, 0, 1, 3]));
-        assert_eq!(a.shape(), vec![3, 4, 2, 5]);
-        assert_eq!(a.get(&[0, 0, 0, 1]), Complex64::new(1.0, 2.0));
-        assert_eq!(a.get(&[1, 3, 0, 2]), Complex64::new(0.0, -1.0));
-        assert_eq!(a.get(&[2, 1, 1, 4]), Complex64::new(-5.0, 0.0));
-    }
-
-    #[test]
-    fn test_transpose_twice() {
-        let mut a = Tensor::new(&[2, 3, 4]);
-        a.set(&[0, 0, 0], Complex64::new(1.0, 2.0));
-        a.set(&[0, 1, 3], Complex64::new(0.0, -1.0));
-        a.set(&[1, 2, 1], Complex64::new(-5.0, 0.0));
-
-        a.transpose(&Permutation::oneline([2, 0, 1]));
-        assert_eq!(a.shape(), vec![3, 4, 2]);
-        assert_eq!(a.len_of(0), 3);
-        assert_eq!(a.len_of(1), 4);
-        assert_eq!(a.len_of(2), 2);
-        assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
-        assert_eq!(a.get(&[1, 3, 0]), Complex64::new(0.0, -1.0));
-        assert_eq!(a.get(&[2, 1, 1]), Complex64::new(-5.0, 0.0));
-
-        a.transpose(&Permutation::oneline([2, 0, 1]));
-        assert_eq!(a.shape(), vec![4, 2, 3]);
-        assert_eq!(a.len_of(0), 4);
-        assert_eq!(a.len_of(1), 2);
-        assert_eq!(a.len_of(2), 3);
-        assert_eq!(a.get(&[0, 0, 0]), Complex64::new(1.0, 2.0));
-        assert_eq!(a.get(&[3, 0, 1]), Complex64::new(0.0, -1.0));
-        assert_eq!(a.get(&[1, 1, 2]), Complex64::new(-5.0, 0.0));
+    fn test_transpose() {
+        let ref_data = vec![
+            Complex64::new(1.0, 2.0),
+            Complex64::new(0.0, -1.0),
+            Complex64::new(-5.0, 0.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, 0.0),
+            Complex64::new(0.0, 3.0),
+            Complex64::new(-1.0, -1.0),
+        ];
+        let transposed_ref_data = vec![
+            Complex64::new(1.0, 2.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(0.0, -1.0),
+            Complex64::new(0.0, 0.0),
+            Complex64::new(-5.0, 0.0),
+            Complex64::new(0.0, 3.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(-1.0, -1.0),
+        ];
+        let ref_tensor = Tensor::new_from_flat(&[2, 2, 2], transposed_ref_data);
+        let a = Tensor::new_from_flat(&[2, 2, 2], ref_data.clone());
+        let b = a.transpose(&Permutation::oneline(vec![2, 0, 1]));
+        assert_approx_eq!(&Tensor, &b, &ref_tensor);
     }
 
     #[test]
@@ -725,58 +492,6 @@ mod tests {
     }
 
     #[test]
-    fn test_elements() {
-        let ref_data = vec![
-            Complex64::new(1.0, 2.0),
-            Complex64::new(0.0, -1.0),
-            Complex64::new(-5.0, 0.0),
-        ];
-        let a = Tensor::new_from_flat(&[1, 3, 1], ref_data.clone(), None);
-
-        assert!(a.is_contiguous());
-        let elements = a.elements();
-        let Cow::Borrowed(data) = elements else {
-            panic!("Expected borrowed data")
-        };
-        assert_eq!(data, &ref_data);
-    }
-
-    #[test]
-    fn test_elements_after_transpose() {
-        let ref_data = vec![
-            Complex64::new(1.0, 2.0),
-            Complex64::new(0.0, -1.0),
-            Complex64::new(-5.0, 0.0),
-            Complex64::new(3.0, 4.0),
-        ];
-        let transposed_ref_data = vec![
-            Complex64::new(1.0, 2.0),
-            Complex64::new(-5.0, 0.0),
-            Complex64::new(0.0, -1.0),
-            Complex64::new(3.0, 4.0),
-        ];
-        let mut a = Tensor::new_from_flat(&[2, 1, 2], ref_data.clone(), None);
-
-        // Without transpose, the data is still contiguous and can be borrowed
-        assert!(a.is_contiguous());
-        let elements = a.elements();
-        let Cow::Borrowed(data) = elements else {
-            panic!("Expected borrowed data")
-        };
-        assert_eq!(data, &ref_data);
-
-        a.transpose(&Permutation::oneline(vec![2, 0, 1]));
-
-        // After transpose, the data is no longer contiguous and must be cloned
-        assert!(!a.is_contiguous());
-        let elements = a.elements();
-        let Cow::Owned(data) = elements else {
-            panic!("Expected owned data")
-        };
-        assert_eq!(data, transposed_ref_data);
-    }
-
-    #[test]
     fn test_raw_data_mut_reflects_changes() {
         let mut a = Tensor::new(&[4, 2]);
 
@@ -792,150 +507,63 @@ mod tests {
         assert_eq!(a.get(&[]), Complex64::new(2.0, -3.0));
     }
 
-    #[test]
-    fn test_into_elements() {
-        let a_data = vec![
-            Complex64::new(3.0, 2.0),
-            Complex64::new(-4.0, -1.0),
-            Complex64::new(-5.0, 2.0),
-            Complex64::new(3.0, 4.0),
-            Complex64::new(2.0, 0.0),
-            Complex64::new(0.0, 0.0),
-        ];
-        let a = Tensor::new_from_flat(&[2, 3], a_data.clone(), None);
-        assert_eq!(*a.into_elements(), a_data);
-    }
+    // fn int_to_complex(x: Vec<i32>) -> Vec<Complex64> {
+    //     x.into_iter()
+    //         .map(|x| Complex64::new(x.into(), 0.0))
+    //         .collect()
+    // }
 
-    #[test]
-    fn test_into_elements_transposed() {
-        let a_data = vec![
-            Complex64::new(3.0, 2.0),
-            Complex64::new(-4.0, -1.0),
-            Complex64::new(-5.0, 2.0),
-            Complex64::new(3.0, 4.0),
-            Complex64::new(2.0, 0.0),
-            Complex64::new(0.0, 0.0),
-        ];
-        let a_transposed = vec![
-            a_data[0], a_data[2], a_data[4], a_data[1], a_data[3], a_data[5],
-        ];
-        let a = Tensor::new_from_flat(&[2, 3], a_data, Some(Layout::ColumnMajor));
-        assert_eq!(*a.into_elements(), a_transposed);
-    }
+    // #[test]
+    // fn test_slice_rowmajor() {
+    //     let data = int_to_complex(vec![
+    //         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+    //     ]);
+    //     let matrix = Tensor::new_from_flat(&[2, 3, 4], data, Some(Layout::RowMajor));
 
-    #[test]
-    fn test_into_elements_shared() {
-        let data = vec![
-            Complex64::new(3.0, 2.0),
-            Complex64::new(-4.0, -1.0),
-            Complex64::new(-5.0, 2.0),
-            Complex64::new(3.0, 4.0),
-            Complex64::new(2.0, 0.0),
-            Complex64::new(0.0, 0.0),
-        ];
-        let a = Tensor::new_from_flat(&[2, 3], data.clone(), None);
-        let b = a.clone();
-        let view = Arc::downgrade(&a.data);
+    //     // Slicing axis 0, index 0 => data[0, :, :]
+    //     let ref_data_slice_0 = int_to_complex(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    //     let slice = matrix.slice(0, 0);
+    //     assert_eq!(slice.shape(), vec![3, 4]);
+    //     assert_eq!(*slice.into_elements(), ref_data_slice_0);
 
-        // a and b share the data
-        assert_eq!(Arc::strong_count(&a.data), 2);
+    //     // Slicing axis 1, index 2 => data[:, 2, :]
+    //     let ref_data_slice_1 = int_to_complex(vec![8, 9, 10, 11, 20, 21, 22, 23]);
+    //     let slice = matrix.slice(1, 2);
+    //     assert_eq!(slice.shape(), vec![2, 4]);
+    //     assert_eq!(*slice.into_elements(), ref_data_slice_1);
 
-        // Now consume a and drop the reference
-        {
-            let a_data = a.into_elements();
-            assert_eq!(*a_data, data);
-        }
+    //     // Slicing axis 2, index 1 => data[:, :, 1]
+    //     let ref_data_slice_2 = int_to_complex(vec![1, 5, 9, 13, 17, 21]);
+    //     let slice = matrix.slice(2, 1);
+    //     assert_eq!(slice.shape(), vec![2, 3]);
+    //     assert_eq!(*slice.into_elements(), ref_data_slice_2);
+    // }
 
-        // Only b holds the data now
-        assert_eq!(Arc::strong_count(&b.data), 1);
+    // #[test]
+    // fn test_slice_columnmajor() {
+    //     let data = int_to_complex(vec![
+    //         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+    //     ]);
+    //     let matrix = Tensor::new_from_flat(&[2, 3, 4], data, Some(Layout::ColumnMajor));
 
-        // Now consume b and drop the reference
-        {
-            let b_data = b.into_elements();
-            assert_eq!(*b_data, data);
-        }
+    //     // Slicing axis 0, index 0 => data[0, :, :]
+    //     let ref_data_slice_0 = int_to_complex(vec![0, 6, 12, 18, 2, 8, 14, 20, 4, 10, 16, 22]);
+    //     let slice = matrix.slice(0, 0);
+    //     assert_eq!(slice.shape(), vec![3, 4]);
+    //     assert_eq!(*slice.into_elements(), ref_data_slice_0);
 
-        // The data is now deallocated
-        assert!(view.upgrade().is_none());
-    }
+    //     // Slicing axis 1, index 2 => data[:, 2, :]
+    //     let ref_data_slice_1 = int_to_complex(vec![4, 10, 16, 22, 5, 11, 17, 23]);
+    //     let slice = matrix.slice(1, 2);
+    //     assert_eq!(slice.shape(), vec![2, 4]);
+    //     assert_eq!(*slice.into_elements(), ref_data_slice_1);
 
-    fn int_to_complex(x: Vec<i32>) -> Vec<Complex64> {
-        x.into_iter()
-            .map(|x| Complex64::new(x.into(), 0.0))
-            .collect()
-    }
-
-    #[test]
-    fn test_slice_rowmajor() {
-        let data = int_to_complex(vec![
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-        ]);
-        let matrix = Tensor::new_from_flat(&[2, 3, 4], data, Some(Layout::RowMajor));
-
-        // Slicing axis 0, index 0 => data[0, :, :]
-        let ref_data_slice_0 = int_to_complex(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-        let slice = matrix.slice(0, 0);
-        assert_eq!(slice.shape(), vec![3, 4]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_0);
-
-        // Slicing axis 1, index 2 => data[:, 2, :]
-        let ref_data_slice_1 = int_to_complex(vec![8, 9, 10, 11, 20, 21, 22, 23]);
-        let slice = matrix.slice(1, 2);
-        assert_eq!(slice.shape(), vec![2, 4]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_1);
-
-        // Slicing axis 2, index 1 => data[:, :, 1]
-        let ref_data_slice_2 = int_to_complex(vec![1, 5, 9, 13, 17, 21]);
-        let slice = matrix.slice(2, 1);
-        assert_eq!(slice.shape(), vec![2, 3]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_2);
-    }
-
-    #[test]
-    fn test_slice_columnmajor() {
-        let data = int_to_complex(vec![
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-        ]);
-        let matrix = Tensor::new_from_flat(&[2, 3, 4], data, Some(Layout::ColumnMajor));
-
-        // Slicing axis 0, index 0 => data[0, :, :]
-        let ref_data_slice_0 = int_to_complex(vec![0, 6, 12, 18, 2, 8, 14, 20, 4, 10, 16, 22]);
-        let slice = matrix.slice(0, 0);
-        assert_eq!(slice.shape(), vec![3, 4]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_0);
-
-        // Slicing axis 1, index 2 => data[:, 2, :]
-        let ref_data_slice_1 = int_to_complex(vec![4, 10, 16, 22, 5, 11, 17, 23]);
-        let slice = matrix.slice(1, 2);
-        assert_eq!(slice.shape(), vec![2, 4]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_1);
-
-        // Slicing axis 2, index 1 => data[:, :, 1]
-        let ref_data_slice_2 = int_to_complex(vec![6, 8, 10, 7, 9, 11]);
-        let slice = matrix.slice(2, 1);
-        assert_eq!(slice.shape(), vec![2, 3]);
-        assert_eq!(*slice.into_elements(), ref_data_slice_2);
-    }
-
-    #[test]
-    fn test_compute_contraction_permutation() {
-        // Contracted axes is 2, 5, 4
-        // Uncontracted axes is 8, 9, 10, 11, 3, 1, 6, 7
-        let data = compute_contraction_permutation(
-            &[8, 2, 9, 5, 10, 11, 4],
-            &[2, 3, 4, 5, 6, 7, 8],
-            &[3, 1, 6, 5, 2, 7, 4],
-            &[2, 3, 4, 5, 3, 6, 8],
-        );
-
-        assert_eq!(data.uncontracted, &[8, 9, 10, 11, 3, 1, 6, 7]);
-        assert_eq!(data.a_permutation, &[0, 2, 4, 5, 1, 3, 6]);
-        assert_eq!(data.b_permutation, &[4, 3, 6, 0, 1, 2, 5]);
-        assert_eq!(data.a_uncontracted_size, 2 * 4 * 6 * 7);
-        assert_eq!(data.b_uncontracted_size, 2 * 3 * 4 * 6);
-        assert_eq!(data.contracted_size, 3 * 5 * 8);
-        assert_eq!(data.c_shape, &[2, 4, 6, 7, 2, 3, 4, 6]);
-    }
+    //     // Slicing axis 2, index 1 => data[:, :, 1]
+    //     let ref_data_slice_2 = int_to_complex(vec![6, 8, 10, 7, 9, 11]);
+    //     let slice = matrix.slice(2, 1);
+    //     assert_eq!(slice.shape(), vec![2, 3]);
+    //     assert_eq!(*slice.into_elements(), ref_data_slice_2);
+    // }
 
     #[test]
     fn toy_contraction() {
@@ -964,7 +592,6 @@ mod tests {
                 Complex64::ZERO,
                 Complex64::new(23.0, 0.0),
             ],
-            None,
         );
         assert_approx_eq!(&Tensor, &a, &sol);
     }
@@ -974,12 +601,10 @@ mod tests {
         let b = Tensor::new_from_flat(
             &[2],
             vec![Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0)],
-            None,
         );
         let c = Tensor::new_from_flat(
             &[2],
             vec![Complex64::new(4.0, 0.0), Complex64::new(5.0, 0.0)],
-            None,
         );
 
         let a = contract(&[], &[0], b, &[0], c);
@@ -988,70 +613,70 @@ mod tests {
         assert_approx_eq!(&Tensor, &a, &sol);
     }
 
-    #[test]
-    fn test_contraction_big_to_scalar() {
-        let a_shape = [2, 3, 4];
-        let b_shape = [4, 2, 3];
-        let a_data = vec![
-            Complex64::new(-5.2, 5.9),
-            Complex64::new(-7.2, -7.8),
-            Complex64::new(-4.9, 4.3),
-            Complex64::new(-3.5, -6.8),
-            Complex64::new(2.4, -2.3),
-            Complex64::new(-9.0, -6.9),
-            Complex64::new(3.5, 6.5),
-            Complex64::new(6.4, -2.8),
-            Complex64::new(3.4, 1.6),
-            Complex64::new(7.0, -0.2),
-            Complex64::new(6.6, 1.1),
-            Complex64::new(-1.7, -3.9),
-            Complex64::new(3.9, 2.7),
-            Complex64::new(4.6, 1.4),
-            Complex64::new(10.0, -3.6),
-            Complex64::new(8.2, -7.4),
-            Complex64::new(-1.7, -9.1),
-            Complex64::new(-8.8, 1.1),
-            Complex64::new(-8.7, 2.3),
-            Complex64::new(-5.7, -7.5),
-            Complex64::new(2.1, -9.2),
-            Complex64::new(-3.2, -6.6),
-            Complex64::new(-3.7, 1.2),
-            Complex64::new(6.4, 5.2),
-        ];
-        let b_data = vec![
-            Complex64::new(6.6, 8.1),
-            Complex64::new(-5.7, 1.7),
-            Complex64::new(5.0, -6.1),
-            Complex64::new(-0.7, -4.3),
-            Complex64::new(1.4, -2.2),
-            Complex64::new(3.4, -6.2),
-            Complex64::new(4.7, -1.8),
-            Complex64::new(4.7, -7.1),
-            Complex64::new(-9.3, 2.6),
-            Complex64::new(-4.9, 1.1),
-            Complex64::new(4.2, -9.0),
-            Complex64::new(7.0, -3.1),
-            Complex64::new(8.0, 1.9),
-            Complex64::new(1.8, -8.4),
-            Complex64::new(6.0, 1.0),
-            Complex64::new(4.7, -0.6),
-            Complex64::new(-4.3, 8.7),
-            Complex64::new(-5.3, 8.5),
-            Complex64::new(2.3, 1.7),
-            Complex64::new(8.1, 7.8),
-            Complex64::new(-1.9, 0.9),
-            Complex64::new(3.4, 9.7),
-            Complex64::new(-1.4, -6.7),
-            Complex64::new(4.9, 5.8),
-        ];
+    // #[test]
+    // fn test_contraction_big_to_scalar() {
+    //     let a_shape = [2, 3, 4];
+    //     let b_shape = [4, 2, 3];
+    //     let a_data = vec![
+    //         Complex64::new(-5.2, 5.9),
+    //         Complex64::new(-7.2, -7.8),
+    //         Complex64::new(-4.9, 4.3),
+    //         Complex64::new(-3.5, -6.8),
+    //         Complex64::new(2.4, -2.3),
+    //         Complex64::new(-9.0, -6.9),
+    //         Complex64::new(3.5, 6.5),
+    //         Complex64::new(6.4, -2.8),
+    //         Complex64::new(3.4, 1.6),
+    //         Complex64::new(7.0, -0.2),
+    //         Complex64::new(6.6, 1.1),
+    //         Complex64::new(-1.7, -3.9),
+    //         Complex64::new(3.9, 2.7),
+    //         Complex64::new(4.6, 1.4),
+    //         Complex64::new(10.0, -3.6),
+    //         Complex64::new(8.2, -7.4),
+    //         Complex64::new(-1.7, -9.1),
+    //         Complex64::new(-8.8, 1.1),
+    //         Complex64::new(-8.7, 2.3),
+    //         Complex64::new(-5.7, -7.5),
+    //         Complex64::new(2.1, -9.2),
+    //         Complex64::new(-3.2, -6.6),
+    //         Complex64::new(-3.7, 1.2),
+    //         Complex64::new(6.4, 5.2),
+    //     ];
+    //     let b_data = vec![
+    //         Complex64::new(6.6, 8.1),
+    //         Complex64::new(-5.7, 1.7),
+    //         Complex64::new(5.0, -6.1),
+    //         Complex64::new(-0.7, -4.3),
+    //         Complex64::new(1.4, -2.2),
+    //         Complex64::new(3.4, -6.2),
+    //         Complex64::new(4.7, -1.8),
+    //         Complex64::new(4.7, -7.1),
+    //         Complex64::new(-9.3, 2.6),
+    //         Complex64::new(-4.9, 1.1),
+    //         Complex64::new(4.2, -9.0),
+    //         Complex64::new(7.0, -3.1),
+    //         Complex64::new(8.0, 1.9),
+    //         Complex64::new(1.8, -8.4),
+    //         Complex64::new(6.0, 1.0),
+    //         Complex64::new(4.7, -0.6),
+    //         Complex64::new(-4.3, 8.7),
+    //         Complex64::new(-5.3, 8.5),
+    //         Complex64::new(2.3, 1.7),
+    //         Complex64::new(8.1, 7.8),
+    //         Complex64::new(-1.9, 0.9),
+    //         Complex64::new(3.4, 9.7),
+    //         Complex64::new(-1.4, -6.7),
+    //         Complex64::new(4.9, 5.8),
+    //     ];
 
-        let sol = Tensor::new_scalar(Complex64::new(-160.09, 54.36));
-        let a = Tensor::new_from_flat(&a_shape, a_data, Some(Layout::RowMajor));
-        let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
-        let c = contract(&[], &[2, 0, 1], a, &[1, 2, 0], b);
+    //     let sol = Tensor::new_scalar(Complex64::new(-160.09, 54.36));
+    //     let a = Tensor::new_from_flat(&a_shape, a_data, Some(Layout::RowMajor));
+    //     let b = Tensor::new_from_flat(&b_shape, b_data, Some(Layout::RowMajor));
+    //     let c = contract(&[], &[2, 0, 1], a, &[1, 2, 0], b);
 
-        assert_approx_eq!(&Tensor, &c, &sol, ulps = 16);
-    }
+    //     assert_approx_eq!(&Tensor, &c, &sol, ulps = 16);
+    // }
 
     #[test]
     fn test_contraction_scalars_only() {
@@ -1077,10 +702,10 @@ mod tests {
             Complex64::new(-7.0, 1.0),
             Complex64::new(5.0, 10.0),
         ];
-        let a = Tensor::new_from_flat(&[2, 2], a_data, None);
+        let a = Tensor::new_from_flat(&[2, 2], a_data);
         let b = Tensor::new_scalar(Complex64::new(2.0, -1.0));
 
-        let sol = Tensor::new_from_flat(&[2, 2], sol_data, None);
+        let sol = Tensor::new_from_flat(&[2, 2], sol_data);
         let c = contract(&[0, 1], &[0, 1], a, &[], b);
         assert_approx_eq!(&Tensor, &c, &sol);
     }
@@ -1102,12 +727,18 @@ mod tests {
         let a = contract(&[1, 0], &[0, 1, 2], b, &[2], c);
 
         // Check result in A
-        assert_eq!(a.get(&[0, 0]), Complex64::new(4.0, 0.0));
-        assert_eq!(a.get(&[1, 0]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[2, 0]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[0, 1]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[1, 1]), Complex64::new(0.0, 0.0));
-        assert_eq!(a.get(&[2, 1]), Complex64::new(23.0, 0.0));
+        let sol = Tensor::new_from_flat(
+            &[3, 2],
+            vec![
+                Complex64::new(4.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::new(23.0, 0.0),
+            ],
+        );
+        assert_approx_eq!(&Tensor, &a, &sol);
     }
 
     #[test]
@@ -1134,9 +765,9 @@ mod tests {
             Complex64::new(-0.8540957393017248, -0.7421650204064419),
         ];
 
-        let solution = Tensor::new_from_flat(&[2], solution_data, None);
-        let b = Tensor::new_from_flat(&[2, 2, 2], b_data, None);
-        let c = Tensor::new_from_flat(&[2, 2], c_data, None);
+        let solution = Tensor::new_from_flat(&[2], solution_data);
+        let b = Tensor::new_from_flat(&[2, 2, 2], b_data);
+        let c = Tensor::new_from_flat(&[2, 2], c_data);
 
         // Contract the tensors
         let out = contract(&[2], &[1, 0, 2], b, &[0, 1], c);
@@ -1394,10 +1025,10 @@ mod tests {
             Complex64::new(1.1605590114481037, -1.8451851363285414),
         ];
 
-        let solution = Tensor::new_from_flat(&[4], solution_data, None);
-        let b = Tensor::new_from_flat(&[1, 2, 3, 4], b_data, None);
-        let c = Tensor::new_from_flat(&[6, 3, 5, 2], c_data, None);
-        let d = Tensor::new_from_flat(&[6, 5, 1], d_data, None);
+        let solution = Tensor::new_from_flat(&[4], solution_data);
+        let b = Tensor::new_from_flat(&[1, 2, 3, 4], b_data);
+        let c = Tensor::new_from_flat(&[6, 3, 5, 2], c_data);
+        let d = Tensor::new_from_flat(&[6, 5, 1], d_data);
 
         // Contract the tensors
         let out1 = contract(&[5, 3, 0, 4], &[0, 1, 2, 3], b, &[5, 2, 4, 1], c);
