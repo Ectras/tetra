@@ -379,6 +379,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "link-cplusplus"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f78c730aaa7d0b9336a299029ea49f9ee53b0ed06e9202e8cb7db9bae7b8c82"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "log"
 version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -461,6 +470,12 @@ name = "permutation"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df202b0b0f5b8e389955afd5f27b007b00fb948162953f1db9c70d2c7e3157d7"
+
+[[package]]
+name = "pkg-config"
+version = "0.3.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "plotters"
@@ -699,7 +714,7 @@ dependencies = [
 [[package]]
 name = "tblis"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-tblis#0480035c3b158372a5f4198d22ed5fe674cf6de8"
+source = "git+https://github.com/Ectras/rust-tblis#3169c206f19cbdc8cc17ebe725490e8784e7d111"
 dependencies = [
  "num-complex",
  "tblis-sys",
@@ -708,11 +723,13 @@ dependencies = [
 [[package]]
 name = "tblis-sys"
 version = "0.1.0"
-source = "git+https://github.com/Ectras/rust-tblis#0480035c3b158372a5f4198d22ed5fe674cf6de8"
+source = "git+https://github.com/Ectras/rust-tblis#3169c206f19cbdc8cc17ebe725490e8784e7d111"
 dependencies = [
  "bindgen",
  "cmake",
+ "link-cplusplus",
  "openmp-sys",
+ "pkg-config",
 ]
 
 [[package]]
