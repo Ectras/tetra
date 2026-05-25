@@ -15,8 +15,6 @@ pub mod random;
 
 mod utils;
 
-// pub mod decomposition;
-
 /// A tensor of arbitrary dimensions containing [`Complex64`] values.
 #[allow(clippy::len_without_is_empty)]
 #[derive(Clone, Debug)]
